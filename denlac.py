@@ -6,8 +6,7 @@ __email__ = "iulia.radulescu@cs.pub.ro"
 __status__ = "Production"
 
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy.ndimage import gaussian_filter1d
+from sklearn.metrics.pairwise import haversine_distances
 from statsmodels.nonparametric.kernel_density import KDEMultivariate
 
 import similaritymeasures
@@ -150,7 +149,6 @@ class Denlac:
         for dim in range(2):
             q = dataset[:, :, dim]
             q = q.reshape(np.shape(q)[0]*np.shape(q)[1], 1)
-            print(np.shape(q))
             kdeList.append(q)
         
         kde = KDEMultivariate(data=kdeList, var_type='cc', bw='normal_reference')
@@ -159,7 +157,28 @@ class Denlac:
 
     def DistFunc(self, x, y):
 
-        return similaritymeasures.frechet_dist(x, y)
+        def geo2catesian(latLon):
+            lat = latLon[0]
+            lon = latLon[1]
+            R = 6378137 + 3000
+            x = R * math.cos(lat) * math.cos(lon)
+            y = R * math.cos(lat) * math.sin(lon)
+            return (x, y)
+
+        x = np.array([geo2catesian(latLon) for latLon in x])
+        y = np.array([geo2catesian(latLon) for latLon in y])
+
+        return similaritymeasures.curve_length_measure(x, y)
+
+    def DistFuncMeanHaversine(self, x, y):
+        hDistanceMatrix = haversine_distances(x, y) * 3959
+        distances = []
+        for i in range(np.shape(hDistanceMatrix)[0]):
+            for j in range(np.shape(hDistanceMatrix)[1]):
+                if (j < i):
+                    continue
+                distances.append(hDistanceMatrix[i][j])  
+        return np.mean(np.array(distances))
 
     def outliersIqr(self, ys):
         '''
@@ -221,13 +240,12 @@ class Denlac:
 
     def getCorrectRadius(self, pointsPartition):
 
-        ns = 2
+        ns = 5
 
         # distances to the kth nearest neighbor, sorted
         distanceDec = self.getDistancesToKthNeigh(ns, [point[0] for point in pointsPartition])
 
         print('shape dist', np.shape(distanceDec))
-        print(distanceDec[:-1] - distanceDec[1:])
 
         maxSlopeIdx = np.argmax(distanceDec[:-1] - distanceDec[1:])
 
@@ -296,12 +314,11 @@ class Denlac:
 
             closestMean = self.getCorrectRadius(pointsPartition)
 
+            print('closestMean', closestMean)
+
             for pointId in range(len(pointsPartition)):
 
                 pointActualValues = pointsPartition[pointId][0]
-
-                print('============', pointsPartition[pointId])
-                print('============')
 
                 if (pointsPartition[pointId][1] == -1):
                     self.id_cluster = self.id_cluster + 1
@@ -345,8 +362,6 @@ class Denlac:
                 finalPartitions[partId] = innerPartitionsFiltered[partIdInner]
                 partId = partId + 1
 
-        print('final partitions', finalPartitions)
-
         return (finalPartitions, noise)
 
     def addNoiseToFinalPartitions(self, noise, joinedPartitions):
@@ -357,11 +372,11 @@ class Denlac:
             closest_partition_idx = 0
             minDist = 99999
             for k in joinedPartitions:
-                dist = self.calculateSmallestPairwise([noise_point], joinedPartitions[k])
+                dist = self.calculateSmallestPairwise([noise_point[0]], joinedPartitions[k])
                 if (dist < minDist):
                     closest_partition_idx = k
                     minDist = dist
-            noise_to_partition[closest_partition_idx].append(noise_point)
+            noise_to_partition[closest_partition_idx].append(noise_point[0])
 
         for joinedPartId in noise_to_partition:
             for noise_point in noise_to_partition[joinedPartId]:
@@ -405,8 +420,6 @@ class Denlac:
                     element_to_append.append(-1)  # was the point already parsed?
 
                     intermediaryPartitionsDict[idxBin].append(element_to_append)
-
-        print('SHAPE ONE INTERM ===', np.shape(intermediaryPartitionsDict[0][0][0]))
 
         '''
 		Density levels bins distance split

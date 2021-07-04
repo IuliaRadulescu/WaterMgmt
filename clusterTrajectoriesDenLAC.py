@@ -45,12 +45,10 @@ def generateDenLACCoords(distance_type):
             g['haversine'] = haversine_distances(g[['lat_r', 'lon_r']].values, np.zeros((1,2))) * 6371000/1000
             trajectoryDict[ntra-1] = np.array(g['haversine'])
         elif (distance_type == 'euclidean'):
-            trajectoryDict[ntra-1] = np.array(g[['lat', 'lon']])
+            trajectoryDict[ntra-1] = np.array(g[['lat_r', 'lon_r']])
         else:
             g['haversine'] = haversine_distances(g[['lat_r', 'lon_r']].values, np.zeros((1,2))) * 6371000/1000
             trajectoryDict[ntra-1] = np.array(g['haversine'])
-
-    # print(trajectoryDict)
 
     trajectoryLens = []
 
@@ -58,7 +56,6 @@ def generateDenLACCoords(distance_type):
         trajectoryLens.append(np.shape(elem)[0])
 
     minLen = min(trajectoryLens)
-    # print(minLen)
 
     scriptDirectory = os.path.dirname(os.path.abspath(__file__))
     fileLocation = scriptDirectory + '/trajectories/czech_june_2021/'
