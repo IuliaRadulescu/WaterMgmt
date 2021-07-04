@@ -8,7 +8,7 @@ def txtToCSV(filename):
 
     trajFileHandler = open(fileLocation + filename, 'r')
 
-    csvLines = 'ntra,2,3,4,5,6,7,8,9,lat,lon,12,13,14,15,16,label\n'
+    csvLines = 'ntra,2,year,month,day,hour,minute,8,9,lat,lon,12,13,14,15,16,label\n'
 
     for line in trajFileHandler:
         line = ','.join(list(filter(lambda x: x != '', list(map(lambda x: x.strip(' \n'), line.split(' ')))))) + ',1'

@@ -56,19 +56,17 @@ class Denlac:
     def computeDistanceIndices(self, partitions, distBetweenPartitionsCache):
 
         distances = []
-        for i in range(len(partitions)):
-            for j in range(len(partitions)):
+        for i in partitions:
+            for j in partitions:
                 if (i == j):
                     distBetweenPartitions = -1
                 else:
                     if (i, j) in distBetweenPartitionsCache:
                         distBetweenPartitions = distBetweenPartitionsCache[(i, j)]
                     else:
-                        if (self.aggMethod == 2):
-                            distBetweenPartitions = self.calculateCentroid(partitions[i], partitions[j])
-                        else:
-                            distBetweenPartitions = self.calculateSmallestPairwise(partitions[i], partitions[j])
+                        distBetweenPartitions = self.calculateSmallestPairwise(partitions[i], partitions[j])
                         distBetweenPartitionsCache[(i, j)] = distBetweenPartitions
+
                 distances.append(distBetweenPartitions)
 
         # sort by distance
@@ -78,7 +76,6 @@ class Denlac:
         finalIndices = [index for index in indices if distances[index] > 0]
 
         return finalIndices
-
 
     # i = index, x = amount of columns, y = amount of rows
     def indexToCoords(self, index, columns, rows):
@@ -90,18 +87,11 @@ class Denlac:
                 return index - columns * i, i
 
     def sortAndDeduplicate(self, l):
+
         result = []
         for value in l:
-            if value not in result:
+            if any(np.array_equal(value, x) for x in result) == False:
                 result.append(value)
-
-        return result
-
-    def sortAndDeduplicateDict(self, d):
-        result = {}
-        for key, value in d.items():
-            if value not in result.values():
-                result[key] = value
 
         return result
 
@@ -171,24 +161,6 @@ class Denlac:
 
         return similaritymeasures.frechet_dist(x, y)
 
-    def centroid(self, objects):
-
-        sumEachDim = {}
-        for dim in range(self.noDims):
-            sumEachDim[dim] = 0
-
-        for object in objects:
-            for dim in range(self.noDims):
-                sumEachDim[dim] = sumEachDim[dim] + object[dim]
-
-        centroidCoords = []
-        for sumId in sumEachDim:
-            centroidCoords.append(round(sumEachDim[sumId] / len(objects), 2))
-
-        centroidCoords = tuple(centroidCoords)
-
-        return centroidCoords
-
     def outliersIqr(self, ys):
         '''
 		Outliers detection with IQR
@@ -202,40 +174,17 @@ class Denlac:
                 outliersIqrIds.append(idx)
         return outliersIqrIds
 
-    def calculateAveragePairwise(self, cluster1, cluster2):
-
-        average_pairwise = 0
-        sum_pairwise = 0
-        nr = 0
-
-        for pixel1 in cluster1:
-            for pixel2 in cluster2:
-                distBetween = self.DistFunc(pixel1, pixel2)
-                sum_pairwise = sum_pairwise + distBetween
-                nr = nr + 1
-
-        average_pairwise = sum_pairwise / nr
-        return average_pairwise
-
     def calculateSmallestPairwise(self, cluster1, cluster2):
 
         minPairwise = 999999
         for traj1 in cluster1:
             for traj2 in cluster2:
                 comparison = traj1 == traj2
-                if (comparison.all()):
+                if (comparison.all() == False):
                     distBetween = self.DistFunc(traj1, traj2)
                     if (distBetween < minPairwise):
                         minPairwise = distBetween
         return minPairwise
-
-    def calculateCentroid(self, cluster1, cluster2):
-        centroid1 = self.centroid(cluster1)
-        centroid2 = self.centroid(cluster2)
-
-        dist = self.DistFunc(centroid1, centroid2)
-
-        return dist
 
 
     def computeDistanceMatrix(self, trajectories):
@@ -272,35 +221,26 @@ class Denlac:
 
     def getCorrectRadius(self, pointsPartition):
 
-        ns = min(2 * self.noDims - 1, (len(pointsPartition) - 1))
+        ns = 2
 
         # distances to the kth nearest neighbor, sorted
         distanceDec = self.getDistancesToKthNeigh(ns, [point[0] for point in pointsPartition])
 
         print('shape dist', np.shape(distanceDec))
+        print(distanceDec[:-1] - distanceDec[1:])
 
-        # get inflection point of the distanceDec plot
-        # smooth
-        smooth = gaussian_filter1d(distanceDec, 100)
+        maxSlopeIdx = np.argmax(distanceDec[:-1] - distanceDec[1:])
 
-        # compute second derivative
-        smooth_d2 = np.gradient(np.gradient(smooth))
-
-        # find switching points
-        infls = np.where(np.diff(np.sign(smooth_d2)))[0]
-
-        return distanceDec[infls[0]]
+        return distanceDec[maxSlopeIdx]
 
 
-    def getClosestKNeigh(self, idPoint, pointsPartition):
+    def getClosestKNeigh(self, idPoint, pointsPartition, closestMean):
         '''
 		Get a point's closest v neighbours
 		v is not a constant!! for each point you keep adding neighbours
 		untill the distance from the next neigbour and the point is larger than
 		expand_factor * closestMean (closestMean este calculata de functia anterioara)
 		'''
-
-        closestMean = self.getCorrectRadius(pointsPartition)
         radius = self.expandFactor * closestMean
 
         neighIdsToDistances = {}
@@ -318,7 +258,7 @@ class Denlac:
 
         return closestKNeigh
 
-    def expandKnn(self, pointId, pointsPartition):
+    def expandKnn(self, pointId, pointsPartition, closestMean):
         '''
 		Extend current cluster
 		Take the current point's nearest v neighbours
@@ -327,7 +267,7 @@ class Denlac:
 		When you can't expand anymore start new cluster
 		'''
 
-        neighIds = self.getClosestKNeigh(pointId, pointsPartition)
+        neighIds = self.getClosestKNeigh(pointId, pointsPartition, closestMean)
 
         if (len(neighIds) > 0):
             pointsPartition[pointId][1] = self.id_cluster
@@ -335,7 +275,7 @@ class Denlac:
             
             for neighId in neighIds:
                 if (pointsPartition[neighId][1] == -1):
-                    self.expandKnn(neighId, pointsPartition)
+                    self.expandKnn(neighId, pointsPartition, closestMean)
         else:
             pointsPartition[pointId][1] = -1
             pointsPartition[pointId][3] = 1
@@ -348,28 +288,33 @@ class Denlac:
         partId = 0
         finalPartitions = collections.defaultdict(list)
 
-        for k in partitionDict:
+        for k in partitionDict: # for each bin, where k is the binId
 
             # EXPANSION STEP
             self.id_cluster = -1
-            pointsPartition = partitionDict[k]
+            pointsPartition = partitionDict[k] # get trajectories in that bin
+
+            closestMean = self.getCorrectRadius(pointsPartition)
 
             for pointId in range(len(pointsPartition)):
 
                 pointActualValues = pointsPartition[pointId][0]
+
+                print('============', pointsPartition[pointId])
+                print('============')
 
                 if (pointsPartition[pointId][1] == -1):
                     self.id_cluster = self.id_cluster + 1
                     noClustersPartition = noClustersPartition + 1
                     pointsPartition[pointId][3] = 1
                     pointsPartition[pointId][1] = self.id_cluster
-                    neigh_ids = self.getClosestKNeigh(pointId, pointsPartition)
+                    neigh_ids = self.getClosestKNeigh(pointId, pointsPartition, closestMean)
 
                     for neigh_id in neigh_ids:
                         if (pointsPartition[neigh_id][1] == -1):
                             pointsPartition[neigh_id][3] = 1
                             pointsPartition[neigh_id][1] = self.id_cluster
-                            self.expandKnn(neigh_id, pointsPartition)
+                            self.expandKnn(neigh_id, pointsPartition, closestMean)
 
             # ARRANGE STEP
             # create partitions
@@ -460,6 +405,8 @@ class Denlac:
                     element_to_append.append(-1)  # was the point already parsed?
 
                     intermediaryPartitionsDict[idxBin].append(element_to_append)
+
+        print('SHAPE ONE INTERM ===', np.shape(intermediaryPartitionsDict[0][0][0]))
 
         '''
 		Density levels bins distance split
