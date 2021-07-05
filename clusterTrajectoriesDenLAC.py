@@ -5,6 +5,7 @@ import math
 from math import radians, degrees
 import itertools
 from sklearn.metrics.pairwise import haversine_distances
+import matplotlib.pyplot as plt
 
 import utils
 import plotTrajectoriesHYSPLIT
@@ -14,8 +15,6 @@ def bearing(lat1, lon1, lat2, lon2):
 
     return np.arctan2((np.cos((lat2)) * np.sin((lon2-lon1))),
         (np.cos((lat1)) * np.sin((lat2)) - np.sin((lat1)) * np.cos((lat2)) * np.cos((lon2-lon1))))
-
-    
 
 def generateDenLACCoords(distance_type):
 
@@ -45,7 +44,7 @@ def generateDenLACCoords(distance_type):
             g['haversine'] = haversine_distances(g[['lat_r', 'lon_r']].values, np.zeros((1,2))) * 6371000/1000
             trajectoryDict[ntra-1] = np.array(g['haversine'])
         elif (distance_type == 'euclidean'):
-            trajectoryDict[ntra-1] = np.array(g[['lat_r', 'lon_r']])
+            trajectoryDict[ntra-1] = np.array(g[['lat', 'lon']])
         else:
             g['haversine'] = haversine_distances(g[['lat_r', 'lon_r']].values, np.zeros((1,2))) * 6371000/1000
             trajectoryDict[ntra-1] = np.array(g['haversine'])
@@ -107,6 +106,26 @@ def plotDenLACResult(denLACResult):
 
     plotTrajectoriesHYSPLIT.plotTraj(resultDf, 'labelDenLAC')
 
+def plotPlaneProjection(denLACResult):
+
+    trajDf = utils.readTraj()
+
+    groupedByTraj = trajDf.groupby('ntra')
+
+    trajectoryDict = {}
+
+    for ntra, group in groupedByTraj:
+        trajectoryDict[ntra-1] = np.array(group[['lat', 'lon']])
+
+    colors = ['red', 'green', 'blue']
+
+    for trajId in trajectoryDict:
+        traj = trajectoryDict[trajId]
+        plt.plot(traj[:, 0], traj[:, 1], label = 'traj ' + str(trajId), color = colors[denLACResult[trajId]])
+
+    plt.show()
+
+
 datasetWithLabels = generateDenLACCoords('euclidean')
 
 dataset = np.array([elem[0:-1] for elem in datasetWithLabels])
@@ -119,4 +138,6 @@ points2ClustersDict = dict(getClustersForDatasetElements(datasetWithLabels, join
 
 print(points2ClustersDict)
 
-plotDenLACResult(points2ClustersDict)
+plotPlaneProjection(points2ClustersDict)
+
+# plotDenLACResult(points2ClustersDict)

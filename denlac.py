@@ -8,9 +8,9 @@ __status__ = "Production"
 import numpy as np
 from sklearn.metrics.pairwise import haversine_distances
 from statsmodels.nonparametric.kernel_density import KDEMultivariate
-
+import matplotlib.pyplot as plt
 import similaritymeasures
-
+import utm
 from random import randint
 import argparse
 import math
@@ -157,18 +157,7 @@ class Denlac:
 
     def DistFunc(self, x, y):
 
-        def geo2catesian(latLon):
-            lat = latLon[0]
-            lon = latLon[1]
-            R = 6378137 + 3000
-            x = R * math.cos(lat) * math.cos(lon)
-            y = R * math.cos(lat) * math.sin(lon)
-            return (x, y)
-
-        x = np.array([geo2catesian(latLon) for latLon in x])
-        y = np.array([geo2catesian(latLon) for latLon in y])
-
-        return similaritymeasures.curve_length_measure(x, y)
+        return similaritymeasures.frechet_dist(x, y)
 
     def DistFuncMeanHaversine(self, x, y):
         hDistanceMatrix = haversine_distances(x, y) * 3959
@@ -225,29 +214,25 @@ class Denlac:
         distanceMatrix = self.computeDistanceMatrix(trajectories)
 
         # compute distances to closest K neigh
-        distancesToClosestK = []
-
-        for trajId in range(len(trajectories)):
-            # get all distances for a given trajectory and sort them
-            distancesForTraj = distanceMatrix[trajId]
-            distancesForTraj = sorted(distancesForTraj)
-
-            # retrieve distance on position k
-            distancesToClosestK.append(distancesForTraj[kthNeigh])
+        distancesToClosestK = distanceMatrix[:, kthNeigh]
 
         # return k distances, sorted descending
         return np.array(sorted(distancesToClosestK, reverse=True))
 
     def getCorrectRadius(self, pointsPartition):
 
-        ns = 5
+        ns = 3
 
         # distances to the kth nearest neighbor, sorted
         distanceDec = self.getDistancesToKthNeigh(ns, [point[0] for point in pointsPartition])
 
-        print('shape dist', np.shape(distanceDec))
+        print(distanceDec)
 
         maxSlopeIdx = np.argmax(distanceDec[:-1] - distanceDec[1:])
+
+        # plt.plot(distanceDec)
+        # plt.axvline(x=distanceDec[maxSlopeIdx], color='k', label=f'Inflection Point')
+        # plt.show()
 
         return distanceDec[maxSlopeIdx]
 
