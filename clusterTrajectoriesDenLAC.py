@@ -90,7 +90,7 @@ def getClustersForDatasetElements(datasetWithLabels, clusterPoints):
         for element in elementsInCluster:
             point2clusterId[tuple(element.flatten().tolist())] = clusterId
 
-    return [(point2pointId[point], point2clusterId[point]) for point in point2pointId.keys()]
+    return [(point2pointId[point], point2clusterId[point]) if point in point2clusterId.keys() else (point2pointId[point], -1) for point in point2pointId.keys()]
 
 def plotDenLACResult(denLACResult):
 
@@ -117,7 +117,7 @@ def plotPlaneProjection(denLACResult):
     for ntra, group in groupedByTraj:
         trajectoryDict[ntra-1] = np.array(group[['lat', 'lon']])
 
-    colors = ['red', 'green', 'blue']
+    colors = ['red', 'green', 'blue', 'purple', 'orange', 'pink', 'magenta', 'black']
 
     for trajId in trajectoryDict:
         traj = trajectoryDict[trajId]
@@ -136,8 +136,6 @@ joinedPartitions = denlac.runDenLAC(dataset)
 
 points2ClustersDict = dict(getClustersForDatasetElements(datasetWithLabels, joinedPartitions))
 
-print(points2ClustersDict)
-
 plotPlaneProjection(points2ClustersDict)
 
-# plotDenLACResult(points2ClustersDict)
+plotDenLACResult(points2ClustersDict)

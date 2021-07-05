@@ -107,7 +107,7 @@ class Denlac:
 
         for k in final_partitions:
             for point in final_partitions[k]:
-                partitions[partId].append(point[0])
+                partitions[partId].append(point)
             partId = partId + 1
 
         distBetweenPartitionsCache = {}
@@ -182,6 +182,23 @@ class Denlac:
                 outliersIqrIds.append(idx)
         return outliersIqrIds
 
+    def calculateAveragePairwise(self, cluster1, cluster2):
+
+        average_pairwise = 0
+        sum_pairwise = 0
+        nr = 0
+
+        for traj1 in cluster1:
+            for traj2 in cluster2:
+                comparison = traj1 == traj2
+                if (comparison.all() == False):
+                    distBetween = self.DistFunc(traj1, traj2)
+                    sum_pairwise = sum_pairwise + distBetween
+                    nr = nr + 1
+
+        average_pairwise = sum_pairwise / nr
+        return average_pairwise
+
     def calculateSmallestPairwise(self, cluster1, cluster2):
 
         minPairwise = 999999
@@ -221,16 +238,14 @@ class Denlac:
 
     def getCorrectRadius(self, pointsPartition):
 
-        ns = 3
+        ns = math.ceil(0.1 * len(pointsPartition))
 
         # distances to the kth nearest neighbor, sorted
         distanceDec = self.getDistancesToKthNeigh(ns, [point[0] for point in pointsPartition])
 
-        print(distanceDec)
-
         maxSlopeIdx = np.argmax(distanceDec[:-1] - distanceDec[1:])
 
-        # plt.plot(distanceDec)
+        # plt.plot(list(range(1,len(distanceDec)+1)), distanceDec)
         # plt.axvline(x=distanceDec[maxSlopeIdx], color='k', label=f'Inflection Point')
         # plt.show()
 
@@ -295,17 +310,15 @@ class Denlac:
 
             # EXPANSION STEP
             self.id_cluster = -1
+
             pointsPartition = partitionDict[k] # get trajectories in that bin
 
             closestMean = self.getCorrectRadius(pointsPartition)
 
-            print('closestMean', closestMean)
-
             for pointId in range(len(pointsPartition)):
 
-                pointActualValues = pointsPartition[pointId][0]
-
                 if (pointsPartition[pointId][1] == -1):
+
                     self.id_cluster = self.id_cluster + 1
                     noClustersPartition = noClustersPartition + 1
                     pointsPartition[pointId][3] = 1
@@ -322,11 +335,12 @@ class Denlac:
             # create partitions
             innerPartitions = collections.defaultdict(list)
             partIdInner = 0
+
             for i in range(noClustersPartition):
-                innerPartitions[partIdInner] = [pointActualValues for pointActualValues in pointsPartition if pointActualValues[1] == i]
+                innerPartitions[partIdInner] = [pointsPartition[pointId][0] for pointId in range(len(pointsPartition)) if pointsPartition[pointId][1] == i]
                 partIdInner = partIdInner + 1
 
-            noise += [pointActualValues for pointActualValues in pointsPartition if pointActualValues[1] == -1]
+            noise += [pointsPartition[pointId][0] for pointId in range(len(pointsPartition)) if pointsPartition[pointId][1] == -1]
 
             # filter partitions - eliminate the ones with a single point and add them to the noise list
             keysToDelete = []
@@ -341,7 +355,7 @@ class Denlac:
                 del innerPartitions[k]
 
             # reindex dict
-            innerPartitionsFiltered = dict(zip(range(0, len(innerPartitions)), list(innerPartitions.values())))
+            innerPartitionsFiltered = dict(zip(range(len(innerPartitions)), list(innerPartitions.values())))
 
             for partIdInner in innerPartitionsFiltered:
                 finalPartitions[partId] = innerPartitionsFiltered[partIdInner]
@@ -350,6 +364,7 @@ class Denlac:
         return (finalPartitions, noise)
 
     def addNoiseToFinalPartitions(self, noise, joinedPartitions):
+
         noise_to_partition = collections.defaultdict(list)
         # reassign the noise to the class that contains the nearest neighbor
         for noise_point in noise:
@@ -357,11 +372,11 @@ class Denlac:
             closest_partition_idx = 0
             minDist = 99999
             for k in joinedPartitions:
-                dist = self.calculateSmallestPairwise([noise_point[0]], joinedPartitions[k])
+                dist = self.calculateAveragePairwise([noise_point], joinedPartitions[k])
                 if (dist < minDist):
                     closest_partition_idx = k
                     minDist = dist
-            noise_to_partition[closest_partition_idx].append(noise_point[0])
+            noise_to_partition[closest_partition_idx].append(noise_point)
 
         for joinedPartId in noise_to_partition:
             for noise_point in noise_to_partition[joinedPartId]:
@@ -369,8 +384,6 @@ class Denlac:
 
 
     def clusterDataset(self, dataset, evaluatePerf = False):
-
-        intermediaryPartitionsDict = collections.defaultdict(list)
 
         pdf = self.computePdfKde(dataset)  # compute pdf using kde with custom dist (frechet)
 
@@ -392,6 +405,8 @@ class Denlac:
         '''
 		Split the dataset in density bins
 		'''
+        intermediaryPartitionsDict = collections.defaultdict(list)
+        
         _, bins = np.histogram(pdf, bins=self.no_bins)
 
         for idxBin in range((len(bins) - 1)):
@@ -413,14 +428,14 @@ class Denlac:
 
         print('noise points ' + str(len(noise)) + ' from ' + str(len(dataset)) + ' points')
 
-        '''
-        Joining partitions based on distances
-         '''
+        # '''
+        # Joining partitions based on distances
+        #  '''
         joinedPartitions = self.joinPartitions(final_partitions, self.no_clusters)
 
-        '''
-        Adding what was classified as noise to the corresponding partition
-        '''
+        # '''
+        # Adding what was classified as noise to the corresponding partition
+        # '''
         self.addNoiseToFinalPartitions(noise, joinedPartitions)
 
         return joinedPartitions
