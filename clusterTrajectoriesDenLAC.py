@@ -5,25 +5,30 @@ import math
 from math import radians, degrees
 import itertools
 from sklearn.metrics.pairwise import haversine_distances
+import matplotlib
 import matplotlib.pyplot as plt
+import random
+from astropy.coordinates import SphericalRepresentation
 
 import utils
 import plotTrajectoriesHYSPLIT
 import denlac
 
-def bearing(lat1, lon1, lat2, lon2):
+def convertToCartesian(elem):
 
-    return np.arctan2((np.cos((lat2)) * np.sin((lon2-lon1))),
-        (np.cos((lat1)) * np.sin((lat2)) - np.sin((lat1)) * np.cos((lat2)) * np.cos((lon2-lon1))))
+    R = 1
+
+    lon_r = elem[0]
+    lat_r = elem[1]
+
+    x =  R * np.cos(lat_r) * np.cos(lon_r)
+    y = R * np.cos(lat_r) * np.sin(lon_r)
+    
+    return (x, y)
 
 def generateDenLACCoords(distance_type):
 
     trajDf = utils.readTraj()
-
-    timeDf = trajDf[['year', 'month', 'day', 'hour', 'minute']]
-    timeDf = timeDf.astype(str)
-    dateTimeDf = pd.to_datetime(timeDf['year'] + timeDf['month'] + timeDf['day'] + timeDf['hour'] + timeDf['minute'], format='%y%m%d%H%M')
-    trajDf['dateTime'] = dateTimeDf
 
     trajDf['lat_r'] = trajDf.lat.apply(radians)
     trajDf['lon_r'] = trajDf.lon.apply(radians)
@@ -33,28 +38,15 @@ def generateDenLACCoords(distance_type):
     trajectoryDict = {}
 
     for ntra, group in groupedByTraj:
-        g = group.sort_values('dateTime', ascending=False)
-
-        if (distance_type == 'bearing'):
-            g['bearing'] = [bearing(lat1, lon1, lat2, lon2) if math.isnan(bearing(lat1, lon1, lat2, lon2)) == False else 0 \
-                                for (lat1, lon1), (lat2, lon2) in \
-                                zip(g[['lat_r', 'lon_r']].values, g[['lat_r', 'lon_r']].shift(-1).values)]
-            trajectoryDict[ntra-1] = np.array(g['bearing'])
-        elif (distance_type == 'haversine'):
-            g['haversine'] = haversine_distances(g[['lat_r', 'lon_r']].values, np.zeros((1,2))) * 6371000/1000
-            trajectoryDict[ntra-1] = np.array(g['haversine'])
-        elif (distance_type == 'euclidean'):
-            trajectoryDict[ntra-1] = np.array(g[['lat', 'lon']])
-        else:
-            g['haversine'] = haversine_distances(g[['lat_r', 'lon_r']].values, np.zeros((1,2))) * 6371000/1000
-            trajectoryDict[ntra-1] = np.array(g['haversine'])
+        latLonArray = np.array(group[['lat_r', 'lon_r']])
+        trajectoryDict[ntra-1] = np.array([convertToCartesian(elem) for elem in latLonArray])
 
     trajectoryLens = []
 
     for key, elem in trajectoryDict.items():
         trajectoryLens.append(np.shape(elem)[0])
 
-    minLen = min(trajectoryLens)
+    maxLen = max(trajectoryLens)
 
     scriptDirectory = os.path.dirname(os.path.abspath(__file__))
     fileLocation = scriptDirectory + '/trajectories/czech_june_2021/'
@@ -63,19 +55,22 @@ def generateDenLACCoords(distance_type):
     dataset = []
 
     for key, elem in trajectoryDict.items():
-        firstMinLen = elem[0:minLen]
 
-        listToAppend = firstMinLen.tolist()
+        if (len(elem) < maxLen):
+            continue
+
+        listToAppend = elem.tolist()
         listToAppend.extend([key])
         dataset.append(listToAppend)
 
-        line = ','.join(map(str, firstMinLen))
+        line = ','.join(map(str, elem))
         line += ',' + str(key) + '\n'
         trajDenLACFile.write(line)
 
     trajDenLACFile.close()
 
     return dataset
+
 
 def getClustersForDatasetElements(datasetWithLabels, clusterPoints):
         
@@ -95,9 +90,12 @@ def getClustersForDatasetElements(datasetWithLabels, clusterPoints):
 def plotDenLACResult(denLACResult):
 
     trajDf = utils.readTraj()
+
     groupedByTraj = trajDf.groupby('ntra')
 
     for ntra, group in groupedByTraj:
+        if (ntra-1) not in denLACResult:
+            continue
         group['labelDenLAC'] = [denLACResult[ntra-1]] * group['label'].shape[0]
         if ntra == 1:
             resultDf = group
@@ -110,19 +108,34 @@ def plotPlaneProjection(denLACResult):
 
     trajDf = utils.readTraj()
 
+    trajDf['lat_r'] = trajDf.lat.apply(radians)
+    trajDf['lon_r'] = trajDf.lon.apply(radians)
+
     groupedByTraj = trajDf.groupby('ntra')
 
     trajectoryDict = {}
 
     for ntra, group in groupedByTraj:
-        trajectoryDict[ntra-1] = np.array(group[['lat', 'lon']])
+        latLonArray = np.array(group[['lat_r', 'lon_r']])
+        trajectoryDict[ntra-1] = np.array([convertToCartesian(elem) for elem in latLonArray])
+        
+    nrColors = len(set(denLACResult.values()))
 
-    colors = ['red', 'green', 'blue', 'purple', 'orange', 'pink', 'magenta', 'black']
+    colors = ["#"+''.join([random.choice('0123456789ABCDEF') for j in range(6)])
+                for i in range(nrColors)]
+
+    usedColors = {}
 
     for trajId in trajectoryDict:
+        if trajId not in denLACResult:
+            continue
+        if denLACResult[trajId] not in usedColors:
+            usedColors[denLACResult[trajId]] = colors[denLACResult[trajId]]
         traj = trajectoryDict[trajId]
         plt.plot(traj[:, 0], traj[:, 1], label = 'traj ' + str(trajId), color = colors[denLACResult[trajId]])
 
+    print('COLORS = ', usedColors)
+    
     plt.show()
 
 
@@ -134,7 +147,11 @@ print('Dataset of shape', np.shape(dataset))
 
 joinedPartitions = denlac.runDenLAC(dataset)
 
+# print('OUTPUT ==', joinedPartitions)
+
 points2ClustersDict = dict(getClustersForDatasetElements(datasetWithLabels, joinedPartitions))
+
+print(points2ClustersDict)
 
 plotPlaneProjection(points2ClustersDict)
 

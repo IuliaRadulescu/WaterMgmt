@@ -8,9 +8,8 @@ __status__ = "Production"
 import numpy as np
 from sklearn.metrics.pairwise import haversine_distances
 from statsmodels.nonparametric.kernel_density import KDEMultivariate
+import traj_dist.distance as tdist
 import matplotlib.pyplot as plt
-import similaritymeasures
-import utm
 from random import randint
 import argparse
 import math
@@ -63,7 +62,7 @@ class Denlac:
                     if (i, j) in distBetweenPartitionsCache:
                         distBetweenPartitions = distBetweenPartitionsCache[(i, j)]
                     else:
-                        distBetweenPartitions = self.calculateSmallestPairwise(partitions[i], partitions[j])
+                        distBetweenPartitions = self.calculateAveragePairwise(partitions[i], partitions[j])
                         distBetweenPartitionsCache[(i, j)] = distBetweenPartitions
 
                 distances.append(distBetweenPartitions)
@@ -144,30 +143,28 @@ class Denlac:
     def computePdfKde(self, dataset):
 
         # prepare kde dataset list
-        kdeList = []
+        multivariateList = []
+        firstTerm = []
 
-        for dim in range(2):
-            q = dataset[:, :, dim]
-            q = q.reshape(np.shape(q)[0]*np.shape(q)[1], 1)
-            kdeList.append(q)
-        
-        kde = KDEMultivariate(data=kdeList, var_type='cc', bw='normal_reference')
-        pdf = kde.pdf(kdeList)
+        for distr in dataset[:, :, 0]:
+            firstTerm += np.reshape(distr, (len(distr), 1)).tolist()
+
+        secondTerm = []
+        for distr in dataset[:, :, 1]:
+            secondTerm += np.reshape(distr, (len(distr), 1)).tolist()
+
+        multivariateList.append(firstTerm)
+        multivariateList.append(secondTerm)
+
+        print(np.shape(multivariateList))
+
+        kde = KDEMultivariate(data=multivariateList, var_type='c' * len(multivariateList), bw='normal_reference')
+        pdf = kde.pdf(multivariateList)
         return pdf
 
     def DistFunc(self, x, y):
 
-        return similaritymeasures.frechet_dist(x, y)
-
-    def DistFuncMeanHaversine(self, x, y):
-        hDistanceMatrix = haversine_distances(x, y) * 3959
-        distances = []
-        for i in range(np.shape(hDistanceMatrix)[0]):
-            for j in range(np.shape(hDistanceMatrix)[1]):
-                if (j < i):
-                    continue
-                distances.append(hDistanceMatrix[i][j])  
-        return np.mean(np.array(distances))
+        return tdist.hausdorff(x, y, type_d='euclidean')
 
     def outliersIqr(self, ys):
         '''
@@ -180,7 +177,7 @@ class Denlac:
         for idx in range(len(ys)):
             if ys[idx] < lowerBound:
                 outliersIqrIds.append(idx)
-        return outliersIqrIds
+        return outliersIqrIds 
 
     def calculateAveragePairwise(self, cluster1, cluster2):
 
@@ -234,7 +231,7 @@ class Denlac:
         distancesToClosestK = distanceMatrix[:, kthNeigh]
 
         # return k distances, sorted descending
-        return np.array(sorted(distancesToClosestK, reverse=True))
+        return np.array(sorted(distancesToClosestK, reverse=False))
 
     def getCorrectRadius(self, pointsPartition):
 
@@ -242,6 +239,8 @@ class Denlac:
 
         # distances to the kth nearest neighbor, sorted
         distanceDec = self.getDistancesToKthNeigh(ns, [point[0] for point in pointsPartition])
+
+        print('Distance dec ===', distanceDec)
 
         maxSlopeIdx = np.argmax(distanceDec[:-1] - distanceDec[1:])
 
@@ -302,7 +301,6 @@ class Denlac:
 
         print("Expand factor " + str(self.expandFactor))
         noise = []
-        noClustersPartition = 1
         partId = 0
         finalPartitions = collections.defaultdict(list)
 
@@ -310,6 +308,7 @@ class Denlac:
 
             # EXPANSION STEP
             self.id_cluster = -1
+            noClustersPartition = 1
 
             pointsPartition = partitionDict[k] # get trajectories in that bin
 
@@ -323,33 +322,40 @@ class Denlac:
                     noClustersPartition = noClustersPartition + 1
                     pointsPartition[pointId][3] = 1
                     pointsPartition[pointId][1] = self.id_cluster
+
                     neigh_ids = self.getClosestKNeigh(pointId, pointsPartition, closestMean)
 
                     for neigh_id in neigh_ids:
                         if (pointsPartition[neigh_id][1] == -1):
                             pointsPartition[neigh_id][3] = 1
                             pointsPartition[neigh_id][1] = self.id_cluster
+
                             self.expandKnn(neigh_id, pointsPartition, closestMean)
+
+            print('PARTITION', k, 'WITH NR CLUSTERS', noClustersPartition)
 
             # ARRANGE STEP
             # create partitions
             innerPartitions = collections.defaultdict(list)
+            
             partIdInner = 0
 
             for i in range(noClustersPartition):
                 innerPartitions[partIdInner] = [pointsPartition[pointId][0] for pointId in range(len(pointsPartition)) if pointsPartition[pointId][1] == i]
-                partIdInner = partIdInner + 1
+                partIdInner += 1
 
-            noise += [pointsPartition[pointId][0] for pointId in range(len(pointsPartition)) if pointsPartition[pointId][1] == -1]
+            print('LEN INNER', len(innerPartitions))
+
+            noise.extend([pointsPartition[pointId][0] for pointId in range(len(pointsPartition)) if pointsPartition[pointId][1] == -1])
 
             # filter partitions - eliminate the ones with a single point and add them to the noise list
             keysToDelete = []
             for k in innerPartitions:
-                if (len(innerPartitions[k]) <= 1):
+                if (len(innerPartitions[k]) < 1):
                     keysToDelete.append(k)
                     # we save these points and assign them to the closest cluster
-                    if (len(innerPartitions[k]) > 0):
-                        noise += [pointActualValues for pointActualValues in innerPartitions[k]]
+                    # if (len(innerPartitions[k]) > 0):
+                    #     noise.extend([pointActualValues for pointActualValues in innerPartitions[k]])
 
             for k in keysToDelete:
                 del innerPartitions[k]
@@ -357,9 +363,13 @@ class Denlac:
             # reindex dict
             innerPartitionsFiltered = dict(zip(range(len(innerPartitions)), list(innerPartitions.values())))
 
+            print('LEN FILTERED', len(innerPartitionsFiltered))
+
             for partIdInner in innerPartitionsFiltered:
                 finalPartitions[partId] = innerPartitionsFiltered[partIdInner]
                 partId = partId + 1
+
+        print('LEN FINAL', len(finalPartitions))
 
         return (finalPartitions, noise)
 

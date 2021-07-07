@@ -29,11 +29,9 @@ def plotTraj(trajDf, label='label'):
     ax.set_xlim(lol,loh)
     ax.set_ylim(lal,lah)
 
-
     grouped = trajDf.groupby(label)
 
     for name, group in grouped:
-        #print(name)
         if name == -1:
             continue
         for _, g in group.groupby('ntra'):
