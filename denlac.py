@@ -6,8 +6,9 @@ __email__ = "iulia.radulescu@cs.pub.ro"
 __status__ = "Production"
 
 import numpy as np
-from sklearn.metrics.pairwise import haversine_distances
-from statsmodels.nonparametric.kernel_density import KDEMultivariate
+from scipy import stats
+from scipy.interpolate import make_interp_spline, BSpline
+from kneed import KneeLocator
 import traj_dist.distance as tdist
 import matplotlib.pyplot as plt
 from random import randint
@@ -136,31 +137,26 @@ class Denlac:
             distancesIndices = self.computeDistanceIndices(partitions, distBetweenPartitionsCache)
 
         return partitions
+
         
     '''
         compute pdf and its values for points in dataset
     '''
     def computePdfKde(self, dataset):
 
-        # prepare kde dataset list
-        multivariateList = []
-        firstTerm = []
+        nrTRaj = np.shape(dataset)[0]
+        nrObsTraj = np.shape(dataset)[1]
+        nrDimObs = np.shape(dataset)[2]
 
-        for distr in dataset[:, :, 0]:
-            firstTerm += np.reshape(distr, (len(distr), 1)).tolist()
+        kdeDataset = np.reshape(dataset, (nrTRaj*nrObsTraj, nrDimObs))
+        eachDimensionValues = kdeDataset.transpose()
 
-        secondTerm = []
-        for distr in dataset[:, :, 1]:
-            secondTerm += np.reshape(distr, (len(distr), 1)).tolist()
+        kernel = stats.gaussian_kde(eachDimensionValues, bw_method='silverman')
+        pdf = kernel.evaluate(eachDimensionValues)
 
-        multivariateList.append(firstTerm)
-        multivariateList.append(secondTerm)
+        pdfFin = [np.mean(pdf[i:i+nrObsTraj]) for i in range(math.floor(len(pdf)/nrObsTraj))]
 
-        print(np.shape(multivariateList))
-
-        kde = KDEMultivariate(data=multivariateList, var_type='c' * len(multivariateList), bw='normal_reference')
-        pdf = kde.pdf(multivariateList)
-        return pdf
+        return pdfFin
 
     def DistFunc(self, x, y):
 
@@ -231,24 +227,32 @@ class Denlac:
         distancesToClosestK = distanceMatrix[:, kthNeigh]
 
         # return k distances, sorted descending
-        return np.array(sorted(distancesToClosestK, reverse=False))
+        return np.array(sorted(distancesToClosestK, reverse=True))
 
     def getCorrectRadius(self, pointsPartition):
 
-        ns = math.ceil(0.1 * len(pointsPartition))
+        ns = math.ceil(0.25 * len(pointsPartition))
 
         # distances to the kth nearest neighbor, sorted
         distanceDec = self.getDistancesToKthNeigh(ns, [point[0] for point in pointsPartition])
 
-        print('Distance dec ===', distanceDec)
+        x = range(1, len(distanceDec) + 1)
 
-        maxSlopeIdx = np.argmax(distanceDec[:-1] - distanceDec[1:])
+        # 300 represents number of points to make between the minimum and maximum distance
+        xnew = np.linspace(1, len(distanceDec) + 1, 300) 
 
-        # plt.plot(list(range(1,len(distanceDec)+1)), distanceDec)
-        # plt.axvline(x=distanceDec[maxSlopeIdx], color='k', label=f'Inflection Point')
+        spl = make_interp_spline(x, distanceDec, k=3)  # type: BSpline
+        distanceDecSmooth = spl(xnew)
+
+        kn = KneeLocator(xnew, distanceDecSmooth, direction='decreasing')
+
+        maxSlopeDist = np.interp(kn.knee, xnew, distanceDecSmooth)
+
+        # plt.plot(xnew, distanceDecSmooth)
+        # plt.axvline(x=kn.knee, color='k', label=f'Inflection Point')
         # plt.show()
 
-        return distanceDec[maxSlopeIdx]
+        return maxSlopeDist
 
 
     def getClosestKNeigh(self, idPoint, pointsPartition, closestMean):
@@ -332,8 +336,6 @@ class Denlac:
 
                             self.expandKnn(neigh_id, pointsPartition, closestMean)
 
-            print('PARTITION', k, 'WITH NR CLUSTERS', noClustersPartition)
-
             # ARRANGE STEP
             # create partitions
             innerPartitions = collections.defaultdict(list)
@@ -344,8 +346,6 @@ class Denlac:
                 innerPartitions[partIdInner] = [pointsPartition[pointId][0] for pointId in range(len(pointsPartition)) if pointsPartition[pointId][1] == i]
                 partIdInner += 1
 
-            print('LEN INNER', len(innerPartitions))
-
             noise.extend([pointsPartition[pointId][0] for pointId in range(len(pointsPartition)) if pointsPartition[pointId][1] == -1])
 
             # filter partitions - eliminate the ones with a single point and add them to the noise list
@@ -354,8 +354,8 @@ class Denlac:
                 if (len(innerPartitions[k]) < 1):
                     keysToDelete.append(k)
                     # we save these points and assign them to the closest cluster
-                    # if (len(innerPartitions[k]) > 0):
-                    #     noise.extend([pointActualValues for pointActualValues in innerPartitions[k]])
+                    if (len(innerPartitions[k]) > 0):
+                        noise.extend([pointActualValues for pointActualValues in innerPartitions[k]])
 
             for k in keysToDelete:
                 del innerPartitions[k]
@@ -363,13 +363,9 @@ class Denlac:
             # reindex dict
             innerPartitionsFiltered = dict(zip(range(len(innerPartitions)), list(innerPartitions.values())))
 
-            print('LEN FILTERED', len(innerPartitionsFiltered))
-
             for partIdInner in innerPartitionsFiltered:
                 finalPartitions[partId] = innerPartitionsFiltered[partIdInner]
                 partId = partId + 1
-
-        print('LEN FINAL', len(finalPartitions))
 
         return (finalPartitions, noise)
 
@@ -417,9 +413,12 @@ class Denlac:
 		'''
         intermediaryPartitionsDict = collections.defaultdict(list)
         
-        _, bins = np.histogram(pdf, bins=self.no_bins)
+        hist, bins = np.histogram(pdf, bins=self.no_bins)
 
-        for idxBin in range((len(bins) - 1)):
+        print('BINS', bins)
+        print('HIST', hist)
+
+        for idxBin in range(len(bins)-1):
             for idxPoint in range(len(dataset)):
                 if (pdf[idxPoint] >= bins[idxBin] and pdf[idxPoint] <= bins[idxBin + 1]):
                     element_to_append = []
