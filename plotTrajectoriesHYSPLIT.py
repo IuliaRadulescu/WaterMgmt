@@ -44,6 +44,6 @@ def plotTraj(trajDf, label='label'):
 
     plt.show()
 
-# utils.txtToCSV('endpoint_values.txt')
+utils.txtToCSV('endpoint_values.txt')
 # trajDf = utils.readTraj()
 # plotTraj(trajDf)

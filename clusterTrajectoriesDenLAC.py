@@ -1,14 +1,20 @@
-import numpy as np
-import pandas as pd
+import collections
 import os
 import math
-from math import radians, degrees
+import random
+
+import numpy as np
+from numpy.lib.function_base import angle
+import pandas as pd
+from math import radians, degrees, floor, atan
 import itertools
 from sklearn.metrics.pairwise import haversine_distances
 import matplotlib
 import matplotlib.pyplot as plt
-import random
 from astropy.coordinates import SphericalRepresentation
+from scipy import stats
+import utm
+from labellines import labelLine, labelLines
 
 import utils
 import plotTrajectoriesHYSPLIT
@@ -16,15 +22,109 @@ import denlac
 
 def convertToCartesian(elem):
 
-    R = 1
-
-    lon_r = elem[0]
-    lat_r = elem[1]
-
-    x =  R * np.cos(lat_r) * np.cos(lon_r)
-    y = R * np.cos(lat_r) * np.sin(lon_r)
+    x, y, _, _ = utm.from_latlon(elem[0], elem[1])
     
     return (x, y)
+
+def normalize(x, y, start, end):
+    width = end - start
+    x = (x - x.min())/(x.max() - x.min()) * width + start
+    y = (y - y.min())/(y.max() - y.min()) * width + start
+
+    return (x, y)
+
+def translateToOrigin(x, y, x0, y0):
+    x = (x - x0)
+    y = (y - y0)
+    return (x, y)
+
+def extractAngles(trajList):
+
+    trajectoryAngles = []
+
+    for trajId in range(len(trajList)):
+        angleList = [computeRelativeAngle(x, y) for (x, y) in trajList[trajId]]
+        trajectoryAngles.append(elementsListRepresentatives(angleList))
+
+    return trajectoryAngles
+
+def computeRelativeAngle(x, y):
+    
+    angle = round(degrees(atan(abs(y/x))))
+
+    relativeAngle = angle
+
+    if (x > 0 and y < 0):
+        relativeAngle = 90 + angle
+
+    if (x > 0 and y == 0):
+        relativeAngle = 0
+
+    if (x > 0 and y > 0):
+        relativeAngle = 270 + angle
+
+    if (x == 0 and y < 0):
+        relativeAngle = 180
+
+    if (x == 0 and y > 0):
+        relativeAngle = 90
+
+    if (x < 0 and y < 0):
+        relativeAngle = 270 - angle
+
+    if (x < 0 and y == 0):
+        relativeAngle = 270
+
+    return relativeAngle
+
+'''
+elementsList: 1-d numpy array
+'''
+def elementsListRepresentatives(elementsList):
+
+    mean = round(sum(elementsList)/len(elementsList), 2)
+    median = np.median(elementsList)
+
+    return [mean, median]
+
+def computeTrajDict(groupedByTraj):
+
+    trajectories = []
+    trajectoryLens = []
+
+    for _, group in groupedByTraj:
+        latLonArray = np.array(group[['lat_r', 'lon_r']])
+        cartesianArray = np.array([convertToCartesian(elem) for elem in latLonArray])
+        trajectories.append(cartesianArray)
+        trajectoryLens.append(len(cartesianArray))
+
+    minLen = min(trajectoryLens)
+
+    for trajectoryId in range(len(trajectories)):
+        trajectories[trajectoryId] = trajectories[trajectoryId][0:minLen]
+
+    trajectories = np.array(trajectories)
+
+    # normalize trajectories
+
+    xValues = trajectories[:,:,0].flatten()
+    yValues = trajectories[:,:,1].flatten()
+
+    (xValues, yValues) = normalize(xValues, yValues, 1, 10)
+
+    (xValues, yValues) = translateToOrigin(xValues, yValues, xValues[0], yValues[0])
+ 
+    trajectoryDict = collections.defaultdict(list)
+    ntra = 0
+
+    for xyId in range(len(xValues)):
+        ntra = floor(xyId / minLen)
+        trajectoryDict[ntra].append((round(xValues[xyId], 5), round(yValues[xyId], 5)))
+
+    # print('TRAJ DICT BEFORE', trajectoryDict)
+
+    return trajectoryDict
+
 
 def generateDenLACCoords(distance_type):
 
@@ -35,18 +135,7 @@ def generateDenLACCoords(distance_type):
 
     groupedByTraj = trajDf.groupby('ntra')
 
-    trajectoryDict = {}
-
-    for ntra, group in groupedByTraj:
-        latLonArray = np.array(group[['lat_r', 'lon_r']])
-        trajectoryDict[ntra-1] = np.array([convertToCartesian(elem) for elem in latLonArray])
-
-    trajectoryLens = []
-
-    for key, elem in trajectoryDict.items():
-        trajectoryLens.append(np.shape(elem)[0])
-
-    maxLen = max(trajectoryLens)
+    trajectoryDict = computeTrajDict(groupedByTraj)
 
     scriptDirectory = os.path.dirname(os.path.abspath(__file__))
     fileLocation = scriptDirectory + '/trajectories/czech_june_2021/'
@@ -55,12 +144,9 @@ def generateDenLACCoords(distance_type):
     dataset = []
 
     for key, elem in trajectoryDict.items():
-
-        if (len(elem) < maxLen):
-            continue
-
-        listToAppend = elem.tolist()
-        listToAppend.extend([key])
+        angleList = [computeRelativeAngle(x, y) for (x, y) in elem[1:]]
+        listToAppend = elementsListRepresentatives(angleList)
+        listToAppend.extend([int(key)])
         dataset.append(listToAppend)
 
         line = ','.join(map(str, elem))
@@ -78,14 +164,22 @@ def getClustersForDatasetElements(datasetWithLabels, clusterPoints):
     point2clusterId = {}
 
     for point in datasetWithLabels:
-        index = np.array([point[0:-1]])
-        point2pointId[tuple(index.flatten().tolist())] = point[-1]
+        point = np.array(point)
+        index = point[0:-1]
+        point2pointId[tuple(index)] = int(point[-1])
+
+    # print('============== POINT 2 POINT ID', point2pointId)
 
     for clusterId, elementsInCluster in clusterPoints.items():
+        elementsInCluster = np.array(elementsInCluster)
         for element in elementsInCluster:
-            point2clusterId[tuple(element.flatten().tolist())] = clusterId
+            point2clusterId[tuple(element)] = clusterId
 
-    return [(point2pointId[point], point2clusterId[point]) if point in point2clusterId.keys() else (point2pointId[point], -1) for point in point2pointId.keys()]
+    # print('============== POINT 2 CLUSTER ID', point2clusterId)
+
+    # print('======================')
+
+    return [(point, point2clusterId[point]) if point in point2clusterId.keys() else (point2pointId[point], -1) for point in point2pointId.keys()]
 
 def plotDenLACResult(denLACResult):
 
@@ -106,6 +200,18 @@ def plotDenLACResult(denLACResult):
 
 def plotPlaneProjection(denLACResult):
 
+    clusters2representatives = collections.defaultdict(list)
+
+    for representatives, cluster in denLACResult.items():
+        clusters2representatives[cluster].append(representatives)
+
+    # for cluster, representativesList in clusters2representatives.items():
+    #     print('==============')
+    #     print('CLUSTER', cluster, representativesList)
+    #     print('==============')
+
+    # print('====== DENLAC RESULT', denLACResult)
+
     trajDf = utils.readTraj()
 
     trajDf['lat_r'] = trajDf.lat.apply(radians)
@@ -113,46 +219,53 @@ def plotPlaneProjection(denLACResult):
 
     groupedByTraj = trajDf.groupby('ntra')
 
-    trajectoryDict = {}
+    trajectoryDict = computeTrajDict(groupedByTraj)
 
-    for ntra, group in groupedByTraj:
-        latLonArray = np.array(group[['lat_r', 'lon_r']])
-        trajectoryDict[ntra-1] = np.array([convertToCartesian(elem) for elem in latLonArray])
+    representatives2Trajectories = {}
+
+    for _, elem in trajectoryDict.items():
+        angleList = [computeRelativeAngle(x, y) for (x, y) in elem[1:]]
+        representatives = tuple(elementsListRepresentatives(angleList))
+        representatives2Trajectories[representatives] = elem
         
     nrColors = len(set(denLACResult.values()))
 
-    colors = ["#"+''.join([random.choice('0123456789ABCDEF') for j in range(6)])
-                for i in range(nrColors)]
+    colors = ["#"+''.join([random.choice('0123456789ABCDEF') for j in range(6)]) for i in range(nrColors)]
 
-    usedColors = {}
+    # counter = 0
 
-    for trajId in trajectoryDict:
-        if trajId not in denLACResult:
+    # print('DENLAC RESULT ===', denLACResult)
+
+    for representatives in representatives2Trajectories:
+        # if (counter % 3 == 0 or counter % 2 == 0):
+        #     counter += 1
+        #     continue
+        if representatives not in denLACResult:
             continue
-        if denLACResult[trajId] not in usedColors:
-            usedColors[denLACResult[trajId]] = colors[denLACResult[trajId]]
-        traj = trajectoryDict[trajId]
-        plt.plot(traj[:, 0], traj[:, 1], label = 'traj ' + str(trajId), color = colors[denLACResult[trajId]])
+        traj = np.array(representatives2Trajectories[representatives])
+        # print('representatives', representatives, 'traj =', traj, 'color =', colors[denLACResult[representatives]])
+        plt.plot(traj[:, 0], traj[:, 1], label = 'traj ' + str(representatives), color = colors[denLACResult[representatives]])
+        # counter += 1
 
-    print('COLORS = ', usedColors)
-    
+    # print('COLORS = ', usedColors)
+    # plt.legend()
     plt.show()
 
 
 datasetWithLabels = generateDenLACCoords('euclidean')
 
-dataset = np.array([elem[0:-1] for elem in datasetWithLabels])
+# print('DATASET WITH LABELS', datasetWithLabels)
 
-print('Dataset of shape', np.shape(dataset))
+dataset = [elem[0:-1] for elem in datasetWithLabels]
+
+# print('Dataset of shape', np.shape(dataset))
 
 joinedPartitions = denlac.runDenLAC(dataset)
 
-# print('OUTPUT ==', joinedPartitions)
+print('OUTPUT ==', joinedPartitions)
 
 points2ClustersDict = dict(getClustersForDatasetElements(datasetWithLabels, joinedPartitions))
 
-print(points2ClustersDict)
+# print(points2ClustersDict)
 
 plotPlaneProjection(points2ClustersDict)
-
-plotDenLACResult(points2ClustersDict)
