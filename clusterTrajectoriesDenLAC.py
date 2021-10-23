@@ -89,25 +89,20 @@ class TrajectoryUtils:
 
 class TrajectoryClusterer:
 
-    def __init__(self):
-        trajDf = utils.readTraj()
-
-        trajDf['lat_r'] = trajDf.lat.apply(radians)
-        trajDf['lon_r'] = trajDf.lon.apply(radians)
-
-        groupedByTraj = trajDf.groupby('ntra')
-
-        self.trajectoryDict = self.computeTrajDict(groupedByTraj)
+    def __init__(self, trajectories):
+        
+        self.trajectories = trajectories
+        self.trajectoryDict = self.computeTrajDict()
 
     def getTrajectoryDict(self):
         return self.trajectoryDict
 
-    def computeTrajDict(self, groupedByTraj):
+    def computeTrajDict(self):
 
         trajectories = []
         trajectoryLens = []
 
-        for _, group in groupedByTraj:
+        for _, group in self.trajectories:
             latLonArray = np.array(group[['lat_r', 'lon_r']])
             cartesianArray = np.array([TrajectoryUtils.convertToCartesian(elem) for elem in latLonArray])
             trajectories.append(cartesianArray)
@@ -139,11 +134,11 @@ class TrajectoryClusterer:
         return trajectoryDict
 
 
-    def generateDenLACCoords(self, distance_type):
+    def generateDenLACCoords(self, filename, foldername):
 
         scriptDirectory = os.path.dirname(os.path.abspath(__file__))
-        fileLocation = scriptDirectory + '/trajectories/czech_june_2021/'
-        trajDenLACFile = open(fileLocation + 'trajsDenLAC_' + distance_type + '.txt', 'w')
+        fileLocation = scriptDirectory + '/trajectories/' + foldername + '/'
+        trajDenLACFile = open(fileLocation + filename, 'w')
 
         dataset = []
 
@@ -192,16 +187,15 @@ class TrajectoryClusterer:
 
 class ResultsPlotter:
 
-    def plotDenLACResult(self, denLACResult):
+    def __init__(self, trajectories):
+        self.trajectories = trajectories
 
-        trajDf = utils.readTraj()
+    def plotDenLACResult(self, clusteringResult):
 
-        groupedByTraj = trajDf.groupby('ntra')
-
-        for ntra, group in groupedByTraj:
-            if (ntra-1) not in denLACResult:
+        for ntra, group in self.trajectories:
+            if (ntra-1) not in clusteringResult:
                 continue
-            group['labelDenLAC'] = [denLACResult[ntra-1]] * group['label'].shape[0]
+            group['labelDenLAC'] = [clusteringResult[ntra-1]] * group['label'].shape[0]
             if ntra == 1:
                 resultDf = group
             else:
@@ -236,20 +230,20 @@ class ResultsPlotter:
         plt.show()
 
 
-trajectoryClusterer = TrajectoryClusterer()
+trajDf = utils.readTraj()
 
-datasetWithLabels = trajectoryClusterer.generateDenLACCoords('euclidean')
+trajDf['lat_r'] = trajDf.lat.apply(radians)
+trajDf['lon_r'] = trajDf.lon.apply(radians)
 
+trajectories = trajDf.groupby('ntra')
+
+trajectoryClusterer = TrajectoryClusterer(trajectories)
+datasetWithLabels = trajectoryClusterer.generateDenLACCoords('trajsDenLAC.txt', 'czech_june_2021')
 dataset = [elem[0:-1] for elem in datasetWithLabels]
-
 joinedPartitions = denlac.runDenLAC(dataset)
 
 points2ClustersDict = dict(trajectoryClusterer.getClustersForDatasetElements(datasetWithLabels, joinedPartitions))
-
-resultsPlotter = ResultsPlotter()
-
+resultsPlotter = ResultsPlotter(trajectories)
 resultsPlotter.plotPlaneProjection(points2ClustersDict, trajectoryClusterer.getTrajectoryDict())
-
 trajectoryId2ClusterId = trajectoryClusterer.getClustersForTrajectories(points2ClustersDict)
-
 resultsPlotter.plotDenLACResult(trajectoryId2ClusterId)
