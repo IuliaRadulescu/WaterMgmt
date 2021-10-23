@@ -323,6 +323,39 @@ class TrajectoryEvaluation:
 
         return maximumsSum/len(set(clusterId2Trajectory.keys()))
 
+    def computeCalinskiHarabasz(self, clusterId2Trajectory):
+
+        clustersNr = len(set(clusterId2Trajectory.keys()))
+        allTrajectories = [traj for trajList in clusterId2Trajectory.values() for traj in trajList]
+        trajectoriesNr = len(allTrajectories)
+
+        datasetCentroid = self.getTrajectoryClusterCentroid(allTrajectories)
+
+        sum1 = 0
+        clusterIds2Centroids = {}
+
+        for clusterId in clusterId2Trajectory:
+            elementsInCluster = len(clusterId2Trajectory[clusterId])
+
+            if clusterId not in clusterIds2Centroids:
+                clusterIds2Centroids[clusterId] = self.getTrajectoryClusterCentroid(clusterId2Trajectory[clusterId])
+
+            distHaussCentroid = self.distanceHausdorff(clusterIds2Centroids[clusterId], datasetCentroid)
+
+            sum1 += elementsInCluster * distHaussCentroid
+
+        term1 = sum1/(clustersNr - 1)
+
+        sum2 = 0
+        for clusterId in clusterId2Trajectory:
+            for traj in clusterId2Trajectory[clusterId]:
+                sum2 += self.distanceHausdorff(traj, clusterIds2Centroids[clusterId])
+
+        term2 = sum2/(trajectoriesNr - clustersNr)
+
+        return term1/term2
+
+
 trajDf = utils.readTraj()
 
 trajDf['lat_r'] = trajDf.lat.apply(radians)
@@ -343,5 +376,7 @@ clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId = trajectoryC
 
 trajectoryEvaluation = TrajectoryEvaluation()
 dbI = trajectoryEvaluation.computeDaviesBouldin(clusterId2Trajectory)
+chI = trajectoryEvaluation.computeCalinskiHarabasz(clusterId2Trajectory)
 
 print('Davies Bouldin Index', dbI)
+print('Calinski Harabasz Index', chI)
