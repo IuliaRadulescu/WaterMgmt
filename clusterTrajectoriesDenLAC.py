@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from math import radians, degrees, floor, atan
 import matplotlib.pyplot as plt
+from similaritymeasures import frechet_dist
 import utm
 
 import utils
@@ -92,33 +93,56 @@ class TrajectoryClusterer:
     def __init__(self, trajectories):
         
         self.trajectories = trajectories
-        self.trajectoryDict = self.computeTrajDict()
+        self.adaptedTrajectoriesDict = self.computeAdaptedTrajDict()
+        self.trajectoriesDict = self.computeTrajDict()
 
-    def getTrajectoryDict(self):
-        return self.trajectoryDict
+    def getAdaptedTrajDict(self):
+        return self.adaptedTrajectoriesDict
+
+    def getTrajDict(self):
+        return self.trajectoriesDict
 
     def computeTrajDict(self):
 
-        trajectories = []
+        trajectoryDict = {}
+        trajectoryLens = []
+
+        for ntra, group in self.trajectories:
+            trajectoryDict[ntra-1] = np.array(group[['lat_r', 'lon_r']])
+            trajectoryLens.append(len(trajectoryDict[ntra-1]))
+
+        minLen = min(trajectoryLens)
+
+        for trajectoryId in trajectoryDict:
+            trajectoryDict[trajectoryId] = trajectoryDict[trajectoryId][0:minLen]
+
+        return trajectoryDict
+
+    '''
+    computes trajctories converted to catesian, normalized and translated to origin
+    '''
+    def computeAdaptedTrajDict(self):
+
+        cartesianTrajectories = []
         trajectoryLens = []
 
         for _, group in self.trajectories:
             latLonArray = np.array(group[['lat_r', 'lon_r']])
             cartesianArray = np.array([TrajectoryUtils.convertToCartesian(elem) for elem in latLonArray])
-            trajectories.append(cartesianArray)
+            cartesianTrajectories.append(cartesianArray)
             trajectoryLens.append(len(cartesianArray))
 
         minLen = min(trajectoryLens)
 
-        for trajectoryId in range(len(trajectories)):
-            trajectories[trajectoryId] = trajectories[trajectoryId][0:minLen]
+        for trajectoryId in range(len(cartesianTrajectories)):
+            cartesianTrajectories[trajectoryId] = cartesianTrajectories[trajectoryId][0:minLen]
 
-        trajectories = np.array(trajectories)
+        cartesianTrajectories = np.array(cartesianTrajectories)
 
         # normalize trajectories
 
-        xValues = trajectories[:,:,0].flatten()
-        yValues = trajectories[:,:,1].flatten()
+        xValues = cartesianTrajectories[:,:,0].flatten()
+        yValues = cartesianTrajectories[:,:,1].flatten()
 
         (xValues, yValues) = TrajectoryUtils.normalize(xValues, yValues, 1, 10)
 
@@ -142,7 +166,7 @@ class TrajectoryClusterer:
 
         dataset = []
 
-        for key, elem in self.trajectoryDict.items():
+        for key, elem in self.adaptedTrajectoriesDict.items():
             angleList = [TrajectoryUtils.computeRelativeAngle(x, y) for (x, y) in elem[1:]]
             listToAppend = TrajectoryUtils.elementsListRepresentatives(angleList)
             listToAppend.extend([int(key)])
@@ -177,13 +201,18 @@ class TrajectoryClusterer:
     def getClustersForTrajectories(self, trajectoryRepresentative2ClusterId):
 
         trajectoryId2ClusterId = {}
+        trajectory2ClusterId = {}
+        clusterId2Trajectory = collections.defaultdict(list)
 
-        for key, elem in self.trajectoryDict.items():
+        for key, elem in self.adaptedTrajectoriesDict.items():
             trajectoryRepresentatives = tuple(TrajectoryUtils.elementsListRepresentatives([TrajectoryUtils.computeRelativeAngle(x, y) for (x, y) in elem[1:]]))
             if (trajectoryRepresentatives in trajectoryRepresentative2ClusterId):
-                trajectoryId2ClusterId[key] = trajectoryRepresentative2ClusterId[trajectoryRepresentatives]
+                clusterId = trajectoryRepresentative2ClusterId[trajectoryRepresentatives]
+                trajectoryId2ClusterId[key] = clusterId
+                trajectory2ClusterId[tuple(elem)] = clusterId
+                clusterId2Trajectory[clusterId].append(elem)
 
-        return trajectoryId2ClusterId
+        return (clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId)
 
 class ResultsPlotter:
 
@@ -229,6 +258,70 @@ class ResultsPlotter:
 
         plt.show()
 
+class TrajectoryEvaluation:
+
+    def distanceHausdorff(self, traj1, traj2):
+        return frechet_dist(traj1, traj2)
+
+    def getTrajectoryClusterCentroid(self, trajs):
+
+        noDims = np.shape(trajs)[1]
+        trajsNp = np.array(trajs)
+
+        centroid = []
+        
+        for d in range(noDims):
+            centroid.append(np.mean(trajsNp[:,d,:], axis=0))
+
+        return centroid
+
+    def computeDaviesBouldin(self, clusterId2Trajectory):
+
+        def getClusterAvg(trajs, centroid):
+            distances = []
+
+            for traj in trajs:
+                distances.append(self.distanceHausdorff(traj, centroid))
+
+            return sum(distances)/len(distances)
+
+        clusterIds2Centroids = {}
+        clusterIds2Avgs = {}
+
+        maximumsSum = 0
+
+        for clusterId1 in clusterId2Trajectory:
+            maxValue = 0
+            for clusterId2 in clusterId2Trajectory:
+                if clusterId1 > clusterId2:
+                    continue
+
+                if clusterId1 not in clusterIds2Centroids:
+                    clusterIds2Centroids[clusterId1] = self.getTrajectoryClusterCentroid(clusterId2Trajectory[clusterId1])
+                if clusterId2 not in clusterIds2Centroids:
+                    clusterIds2Centroids[clusterId2] = self.getTrajectoryClusterCentroid(clusterId2Trajectory[clusterId2])
+
+                centroid1 = clusterIds2Centroids[clusterId1]
+                centroid2 = clusterIds2Centroids[clusterId2]
+
+                if clusterId1 not in clusterIds2Avgs:
+                    clusterIds2Avgs[clusterId1] = getClusterAvg(clusterId2Trajectory[clusterId1], centroid1)
+                if clusterId2 not in clusterIds2Avgs:
+                    clusterIds2Avgs[clusterId2] = getClusterAvg(clusterId2Trajectory[clusterId2], centroid2)
+
+                cluster1Avg = clusterIds2Avgs[clusterId1]
+                cluster2Avg = clusterIds2Avgs[clusterId2]
+
+                distHauss = self.distanceHausdorff(centroid1, centroid2)
+
+                dbValue = (cluster1Avg + cluster2Avg) / (distHauss) if distHauss > 0 else 0
+
+                if (dbValue > maxValue):
+                    maxValue = dbValue
+
+            maximumsSum += maxValue
+
+        return maximumsSum/len(set(clusterId2Trajectory.keys()))
 
 trajDf = utils.readTraj()
 
@@ -244,6 +337,11 @@ joinedPartitions = denlac.runDenLAC(dataset)
 
 points2ClustersDict = dict(trajectoryClusterer.getClustersForDatasetElements(datasetWithLabels, joinedPartitions))
 resultsPlotter = ResultsPlotter(trajectories)
-resultsPlotter.plotPlaneProjection(points2ClustersDict, trajectoryClusterer.getTrajectoryDict())
-trajectoryId2ClusterId = trajectoryClusterer.getClustersForTrajectories(points2ClustersDict)
-resultsPlotter.plotDenLACResult(trajectoryId2ClusterId)
+# resultsPlotter.plotPlaneProjection(points2ClustersDict, trajectoryClusterer.getAdaptedTrajDict())
+clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId = trajectoryClusterer.getClustersForTrajectories(points2ClustersDict)
+# resultsPlotter.plotDenLACResult(trajectoryId2ClusterId)
+
+trajectoryEvaluation = TrajectoryEvaluation()
+dbI = trajectoryEvaluation.computeDaviesBouldin(clusterId2Trajectory)
+
+print('Davies Bouldin Index', dbI)
