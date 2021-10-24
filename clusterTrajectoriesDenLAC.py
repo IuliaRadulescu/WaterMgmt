@@ -7,6 +7,7 @@ import pandas as pd
 from math import radians, degrees, floor, atan
 import matplotlib.pyplot as plt
 from similaritymeasures import frechet_dist
+from sklearn.metrics import silhouette_score
 import utm
 
 import utils
@@ -260,7 +261,7 @@ class ResultsPlotter:
 
 class TrajectoryEvaluation:
 
-    def distanceHausdorff(self, traj1, traj2):
+    def distanceFrechet(self, traj1, traj2):
         return frechet_dist(traj1, traj2)
 
     def getTrajectoryClusterCentroid(self, trajs):
@@ -281,7 +282,7 @@ class TrajectoryEvaluation:
             distances = []
 
             for traj in trajs:
-                distances.append(self.distanceHausdorff(traj, centroid))
+                distances.append(self.distanceFrechet(traj, centroid))
 
             return sum(distances)/len(distances)
 
@@ -312,7 +313,7 @@ class TrajectoryEvaluation:
                 cluster1Avg = clusterIds2Avgs[clusterId1]
                 cluster2Avg = clusterIds2Avgs[clusterId2]
 
-                distHauss = self.distanceHausdorff(centroid1, centroid2)
+                distHauss = self.distanceFrechet(centroid1, centroid2)
 
                 dbValue = (cluster1Avg + cluster2Avg) / (distHauss) if distHauss > 0 else 0
 
@@ -340,7 +341,7 @@ class TrajectoryEvaluation:
             if clusterId not in clusterIds2Centroids:
                 clusterIds2Centroids[clusterId] = self.getTrajectoryClusterCentroid(clusterId2Trajectory[clusterId])
 
-            distHaussCentroid = self.distanceHausdorff(clusterIds2Centroids[clusterId], datasetCentroid)
+            distHaussCentroid = self.distanceFrechet(clusterIds2Centroids[clusterId], datasetCentroid)
 
             sum1 += elementsInCluster * distHaussCentroid
 
@@ -349,11 +350,26 @@ class TrajectoryEvaluation:
         sum2 = 0
         for clusterId in clusterId2Trajectory:
             for traj in clusterId2Trajectory[clusterId]:
-                sum2 += self.distanceHausdorff(traj, clusterIds2Centroids[clusterId])
+                sum2 += self.distanceFrechet(traj, clusterIds2Centroids[clusterId])
 
         term2 = sum2/(trajectoriesNr - clustersNr)
 
         return term1/term2
+
+    def computeSilhouette(self, trajectory2ClusterId):
+
+        labels = list(trajectory2ClusterId.values())
+        allTrajectories = list(trajectory2ClusterId.keys())
+        
+        distanceMatrix = []
+
+        for traj1 in allTrajectories:
+            matrixRow = []
+            for traj2 in allTrajectories:
+                matrixRow.append(self.distanceFrechet(traj1, traj2))
+            distanceMatrix.append(matrixRow)
+
+        return silhouette_score(X=distanceMatrix, labels=labels, metric='precomputed')
 
 
 trajDf = utils.readTraj()
@@ -377,6 +393,8 @@ clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId = trajectoryC
 trajectoryEvaluation = TrajectoryEvaluation()
 dbI = trajectoryEvaluation.computeDaviesBouldin(clusterId2Trajectory)
 chI = trajectoryEvaluation.computeCalinskiHarabasz(clusterId2Trajectory)
+silh = trajectoryEvaluation.computeSilhouette(trajectory2ClusterId)
 
 print('Davies Bouldin Index', dbI)
 print('Calinski Harabasz Index', chI)
+print('Silhouette Index', silh)
