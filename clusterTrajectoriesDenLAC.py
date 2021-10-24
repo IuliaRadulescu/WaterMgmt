@@ -51,7 +51,7 @@ class TrajectoryUtils:
     @staticmethod
     def computeRelativeAngle(x, y):
         
-        angle = round(degrees(atan(abs(y/x))), 3)
+        angle = round(degrees(atan(abs(y/x))))
 
         relativeAngle = angle
 
@@ -71,13 +71,13 @@ class TrajectoryUtils:
             relativeAngle = 180
 
         if (x < 0 and y < 0):
-            relativeAngle = 270 - angle
+            relativeAngle = -(90 + angle)
 
         if (x < 0 and y > 0):
-            relativeAngle = 270 + angle
+            relativeAngle = -(90 - angle)
 
         if (x < 0 and y == 0):
-            relativeAngle = 270
+            relativeAngle = -90
 
         return relativeAngle
 
@@ -87,9 +87,6 @@ class TrajectoryUtils:
     @staticmethod
     def elementsListRepresentatives(elementsList):
 
-        minVal = min(elementsList)
-        maxVal = max(elementsList)
-
         p1 = 25
         p2 = 50
         p3 = 75
@@ -98,7 +95,7 @@ class TrajectoryUtils:
         q2 = np.percentile(elementsList,  p2)
         q3 = np.percentile(elementsList,  p3)
 
-        return [minVal, q1, q2, q3, maxVal]
+        return [q1, q2, q3]
 
 class TrajectoryClusterer:
 

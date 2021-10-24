@@ -7,6 +7,7 @@ __status__ = "Production"
 
 import numpy as np
 import matplotlib.pyplot as plt
+from mpl_toolkits import mplot3d
 from numpy.core.fromnumeric import sort
 import scipy.stats as st
 from sklearn.neighbors.kde import KernelDensity
@@ -215,10 +216,13 @@ class Denlac:
 
     def DistFunc(self, x, y):
 
-        sum_powers = 0
+        angleDiffs = []
         for dim in range(self.noDims):
-            sum_powers = math.pow(x[dim] - y[dim], 2) + sum_powers
-        return math.sqrt(sum_powers)
+            angleDiffs.append(abs(x[dim] - y[dim]))
+
+        angleDiffsSum = sum(set(angleDiffs))
+
+        return angleDiffsSum/len(x)
 
     def centroid(self, objects):
 
@@ -485,6 +489,10 @@ class Denlac:
 
         densityBins = collections.defaultdict(list)
 
+        if (self.noDims == 3 and self.debugMode == 1):
+            fig = plt.figure()
+            ax = fig.add_subplot(projection='3d')
+
         for idxBin in range((len(bins) - 1)):
             color = self.randomColorScaled()
             for idxElement in range(len(dataset)):
@@ -505,9 +513,9 @@ class Denlac:
                         plt.scatter(dataset[idxElement][0],
                                     dataset[idxElement][1], color=color)
                     elif (self.noDims == 3 and self.debugMode == 1):
-                        plt.scatter(dataset[idxElement][0], dataset[idxElement][1], dataset[idxElement][2],
-                                    color=color)
-        if ((self.noDims == 2 or self.noDims == 3) and self.debugMode == 1):
+                        ax.scatter(dataset[idxElement][0], dataset[idxElement][1], dataset[idxElement][2],color=color)
+                    
+        if (self.debugMode == 1):
             plt.show()
 
         '''
@@ -530,6 +538,16 @@ class Denlac:
         Joining partitions based on distances
          '''
         joinedPartitions = self.joinPartitions(adjacentComponents, self.noClusters)
+
+        if (self.noDims == 3 and self.debugMode == 1):
+            fig = plt.figure()
+            ax = fig.add_subplot(projection='3d')
+            for k in joinedPartitions:
+                color = self.randomColorScaled()
+                for element in joinedPartitions[k]:
+                    ax.scatter(element[0], element[1], element[2], color=color)
+
+            plt.show()
 
         '''
         Adding what was classified as noise to the corresponding partition
