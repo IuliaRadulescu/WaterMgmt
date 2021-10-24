@@ -51,27 +51,30 @@ class TrajectoryUtils:
     @staticmethod
     def computeRelativeAngle(x, y):
         
-        angle = round(degrees(atan(abs(y/x))))
+        angle = round(degrees(atan(abs(y/x))), 3)
 
         relativeAngle = angle
+
+        if (x > 0 and y > 0):
+            relativeAngle = 90 - angle
 
         if (x > 0 and y < 0):
             relativeAngle = 90 + angle
 
         if (x > 0 and y == 0):
-            relativeAngle = 0
+            relativeAngle = 90
 
-        if (x > 0 and y > 0):
-            relativeAngle = 270 + angle
+        if (x == 0 and y > 0):
+            relativeAngle = 0
 
         if (x == 0 and y < 0):
             relativeAngle = 180
 
-        if (x == 0 and y > 0):
-            relativeAngle = 90
-
         if (x < 0 and y < 0):
             relativeAngle = 270 - angle
+
+        if (x < 0 and y > 0):
+            relativeAngle = 270 + angle
 
         if (x < 0 and y == 0):
             relativeAngle = 270
@@ -84,10 +87,18 @@ class TrajectoryUtils:
     @staticmethod
     def elementsListRepresentatives(elementsList):
 
-        mean = round(sum(elementsList)/len(elementsList), 2)
-        median = np.median(elementsList)
+        minVal = min(elementsList)
+        maxVal = max(elementsList)
 
-        return [mean, median]
+        p1 = 25
+        p2 = 50
+        p3 = 75
+
+        q1 = np.percentile(elementsList,  p1)
+        q2 = np.percentile(elementsList,  p2)
+        q3 = np.percentile(elementsList,  p3)
+
+        return [minVal, q1, q2, q3, maxVal]
 
 class TrajectoryClusterer:
 
@@ -386,9 +397,9 @@ joinedPartitions = denlac.runDenLAC(dataset)
 
 points2ClustersDict = dict(trajectoryClusterer.getClustersForDatasetElements(datasetWithLabels, joinedPartitions))
 resultsPlotter = ResultsPlotter(trajectories)
-# resultsPlotter.plotPlaneProjection(points2ClustersDict, trajectoryClusterer.getAdaptedTrajDict())
+resultsPlotter.plotPlaneProjection(points2ClustersDict, trajectoryClusterer.getAdaptedTrajDict())
 clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId = trajectoryClusterer.getClustersForTrajectories(points2ClustersDict)
-# resultsPlotter.plotDenLACResult(trajectoryId2ClusterId)
+resultsPlotter.plotDenLACResult(trajectoryId2ClusterId)
 
 trajectoryEvaluation = TrajectoryEvaluation()
 dbI = trajectoryEvaluation.computeDaviesBouldin(clusterId2Trajectory)
