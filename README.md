@@ -15,7 +15,7 @@ Silhouette Index 0.20844504729161462
 
 # # 3 clusters
 
-python clusterTrajectoriesDenLAC.py -nclusters 3 -nbins 2 -expFactor 1
+python clusterTrajectoriesDenLAC.py -nclusters 3 -nbins 3 -expFactor 0.75
 
 Evaluation:
 
