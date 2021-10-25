@@ -43,7 +43,8 @@ class TrajectoryUtils:
         trajectoryAngles = []
 
         for trajId in range(len(trajList)):
-            angleList = [TrajectoryUtils.computeRelativeAngle(x, y) for (x, y) in trajList[trajId]]
+            trajVector = TrajectoryUtils.computeTrajVector(trajList[trajId])
+            angleList = [TrajectoryUtils.computeRelativeAngle(x, y) for (x, y) in trajVector]
             trajectoryAngles.append(TrajectoryUtils.elementsListRepresentatives(angleList))
 
         return trajectoryAngles
@@ -71,13 +72,13 @@ class TrajectoryUtils:
             relativeAngle = 180
 
         if (x < 0 and y < 0):
-            relativeAngle = -(90 + angle)
+            relativeAngle = 270 - angle
 
         if (x < 0 and y > 0):
-            relativeAngle = -(90 - angle)
+            relativeAngle = 270 + angle
 
         if (x < 0 and y == 0):
-            relativeAngle = -90
+            relativeAngle = 270
 
         return relativeAngle
 

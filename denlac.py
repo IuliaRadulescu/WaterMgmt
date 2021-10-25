@@ -9,6 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits import mplot3d
 from numpy.core.fromnumeric import sort
+from numpy.lib.function_base import angle
 import scipy.stats as st
 from sklearn.neighbors.kde import KernelDensity
 from sklearn.cluster import estimate_bandwidth
@@ -214,15 +215,64 @@ class Denlac:
         r = randint(0, 255)
         return [round(b / 255, 2), round(g / 255, 2), round(r / 255, 2)]
 
+    def angleToQuadrant(self, degree):
+        if degree <= 90:
+            return 1
+        else:
+            if degree <= 180:
+                return 2
+            else:
+                if degree <= 270:
+                    return 3
+                else:
+                    if degree <= 360:
+                        return 4
+
+    def reduceToQuadrant(self, angle, quad):
+
+        if (quad == 2):
+            angle -= 90
+            angle *= -1
+        
+        if (quad == 3):
+            angle = 270 - angle
+
+        if (quad == 4):
+            angleX = 360 - angle
+            angleX *= -1
+
+        return angle
+
     def DistFunc(self, x, y):
 
         angleDiffs = []
         for dim in range(self.noDims):
-            angleDiffs.append(abs(x[dim] - y[dim]))
 
-        angleDiffsSum = sum(set(angleDiffs))
+            angleX = x[dim]
+            angleY = y[dim]
 
-        return angleDiffsSum/len(x)
+            quadX = self.angleToQuadrant(angleX)
+            quadY = self.angleToQuadrant(angleY)
+
+            # reduce to quadrant
+            angleX = self.reduceToQuadrant(angleX, quadX)
+            angleY = self.reduceToQuadrant(angleY, quadX)
+
+            # if angles are in the same quadrant just take the difference between abs
+            if (quadX == quadY):
+                angleDiff = abs(abs(angleX) - abs(angleY))
+            # if adjacent quadrants
+            elif ((quadX != quadY) and (quadX % 2) == (quadY % 2)):
+                angleDiff = abs(abs(angleX) + abs(angleY))
+            # if opposed quadrants
+            elif ((quadX != quadY) and (quadX % 2) != (quadY % 2)):
+                angleDiff = 360 - abs(abs(angleX) + abs(angleY))
+
+            angleDiffs.append(abs(angleDiff))
+
+        angleDiffsSum = sum(angleDiffs)
+
+        return angleDiffsSum/self.noDims
 
     def centroid(self, objects):
 
