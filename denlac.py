@@ -488,6 +488,7 @@ class Denlac:
         noiseToPartition = collections.defaultdict(list)
         # reassign the noise to the class that contains the nearest neighbor
         for noiseElement in noise:
+            noiseElement = noiseElement[0:self.noDims]
             # determine which is the closest cluster to noiseElement
             closestPartitionIdx = 0
             minDist = 99999

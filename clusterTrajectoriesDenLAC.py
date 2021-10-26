@@ -1,6 +1,7 @@
 import collections
 import os
 import random
+from random import randrange
 
 import numpy as np
 import pandas as pd
@@ -224,6 +225,36 @@ class TrajectoryClusterer:
 
         return (clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId)
 
+    def getWorstCaseClusters(self, clustersNr = 2):
+
+        trajectoryId2ClusterId = {}
+        trajectory2ClusterId = {}
+        clusterId2Trajectory = collections.defaultdict(list)
+
+        clusterId = 1
+
+        for key, elem in self.adaptedTrajectoriesDict.items():
+            trajectoryId2ClusterId[key] = clusterId
+            trajectory2ClusterId[tuple(elem)] = clusterId
+            clusterId2Trajectory[clusterId].append(elem)
+            clusterId = clusterId + 1 if clusterId < clustersNr else clustersNr
+                
+        return (clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId)
+
+    def getRandomClusters(self, clustersNr = 2):
+
+        trajectoryId2ClusterId = {}
+        trajectory2ClusterId = {}
+        clusterId2Trajectory = collections.defaultdict(list)
+
+        for key, elem in self.adaptedTrajectoriesDict.items():
+            clusterId = randrange(clustersNr)
+            trajectoryId2ClusterId[key] = clusterId
+            trajectory2ClusterId[tuple(elem)] = clusterId
+            clusterId2Trajectory[clusterId].append(elem)
+                
+        return (clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId)
+
 class ResultsPlotter:
 
     def __init__(self, trajectories):
@@ -322,9 +353,9 @@ class TrajectoryEvaluation:
                 cluster1Avg = clusterIds2Avgs[clusterId1]
                 cluster2Avg = clusterIds2Avgs[clusterId2]
 
-                distHauss = self.distanceFrechet(centroid1, centroid2)
+                distFrech = self.distanceFrechet(centroid1, centroid2)
 
-                dbValue = (cluster1Avg + cluster2Avg) / (distHauss) if distHauss > 0 else 0
+                dbValue = (cluster1Avg + cluster2Avg) / (distFrech) if distFrech > 0 else 0
 
                 if (dbValue > maxValue):
                     maxValue = dbValue
@@ -380,6 +411,21 @@ class TrajectoryEvaluation:
 
         return silhouette_score(X=distanceMatrix, labels=labels, metric='precomputed')
 
+    @staticmethod
+    def printEvaluationMeasures(clusterId2Trajectory, trajectory2ClusterId):
+        
+        print('')
+        print('EVALUATION MEASURES', len(set(clusterId2Trajectory.keys())), 'clusters')
+        print('')
+
+        dbI = trajectoryEvaluation.computeDaviesBouldin(clusterId2Trajectory)
+        chI = trajectoryEvaluation.computeCalinskiHarabasz(clusterId2Trajectory)
+        silh = trajectoryEvaluation.computeSilhouette(trajectory2ClusterId)
+
+        print('Davies Bouldin Index', dbI)
+        print('Calinski Harabasz Index', chI)
+        print('Silhouette Index', silh)
+
 
 trajDf = utils.readTraj()
 
@@ -400,10 +446,21 @@ clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId = trajectoryC
 resultsPlotter.plotDenLACResult(trajectoryId2ClusterId)
 
 trajectoryEvaluation = TrajectoryEvaluation()
-dbI = trajectoryEvaluation.computeDaviesBouldin(clusterId2Trajectory)
-chI = trajectoryEvaluation.computeCalinskiHarabasz(clusterId2Trajectory)
-silh = trajectoryEvaluation.computeSilhouette(trajectory2ClusterId)
+TrajectoryEvaluation.printEvaluationMeasures(clusterId2Trajectory, trajectory2ClusterId)
 
-print('Davies Bouldin Index', dbI)
-print('Calinski Harabasz Index', chI)
-print('Silhouette Index', silh)
+print('=== EDGE CASES ===')
+
+print('2 clusters')
+# worst case indices (each trajectory in its separate cluster)
+clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId = trajectoryClusterer.getWorstCaseClusters(2)
+TrajectoryEvaluation.printEvaluationMeasures(clusterId2Trajectory, trajectory2ClusterId)
+
+clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId = trajectoryClusterer.getRandomClusters(2)
+TrajectoryEvaluation.printEvaluationMeasures(clusterId2Trajectory, trajectory2ClusterId)
+
+print('3 clusters')
+clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId = trajectoryClusterer.getWorstCaseClusters(3)
+TrajectoryEvaluation.printEvaluationMeasures(clusterId2Trajectory, trajectory2ClusterId)
+
+clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId = trajectoryClusterer.getRandomClusters(3)
+TrajectoryEvaluation.printEvaluationMeasures(clusterId2Trajectory, trajectory2ClusterId)
