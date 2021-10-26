@@ -225,19 +225,67 @@ class TrajectoryClusterer:
 
         return (clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId)
 
+    def getClustersForTrajectoriesUsingRepresentatives(self, trajectoryRepresentative2ClusterId):
+
+        trajectoryId2ClusterId = {}
+        trajectory2ClusterId = {}
+        clusterId2Trajectory = collections.defaultdict(list)
+
+        for key, elem in self.adaptedTrajectoriesDict.items():
+            trajectoryRepresentatives = tuple(TrajectoryUtils.elementsListRepresentatives([TrajectoryUtils.computeRelativeAngle(x, y) for (x, y) in elem[1:]]))
+            if (trajectoryRepresentatives in trajectoryRepresentative2ClusterId):
+                clusterId = trajectoryRepresentative2ClusterId[trajectoryRepresentatives]
+                trajectoryId2ClusterId[key] = clusterId
+                trajectory2ClusterId[tuple(trajectoryRepresentatives)] = clusterId
+                clusterId2Trajectory[clusterId].append(trajectoryRepresentatives)
+
+        return (clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId)
+
     def getWorstCaseClusters(self, clustersNr = 2):
 
         trajectoryId2ClusterId = {}
         trajectory2ClusterId = {}
         clusterId2Trajectory = collections.defaultdict(list)
 
-        clusterId = 1
+        clusterId = 0
 
         for key, elem in self.adaptedTrajectoriesDict.items():
+            clusterId = clusterId + 1 if clusterId < clustersNr else clustersNr
             trajectoryId2ClusterId[key] = clusterId
             trajectory2ClusterId[tuple(elem)] = clusterId
             clusterId2Trajectory[clusterId].append(elem)
+                
+        return (clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId)
+
+    def getWorstCaseClustersUsingRepresentatives(self, trajectoryRepresentative2ClusterId, clustersNr = 2):
+
+        trajectoryId2ClusterId = {}
+        trajectory2ClusterId = {}
+        clusterId2Trajectory = collections.defaultdict(list)
+
+        clusterId = 0
+
+        for key, elem in self.adaptedTrajectoriesDict.items():
+            trajectoryRepresentatives = tuple(TrajectoryUtils.elementsListRepresentatives([TrajectoryUtils.computeRelativeAngle(x, y) for (x, y) in elem[1:]]))
             clusterId = clusterId + 1 if clusterId < clustersNr else clustersNr
+            trajectoryId2ClusterId[key] = clusterId
+            trajectory2ClusterId[tuple(trajectoryRepresentatives)] = clusterId
+            clusterId2Trajectory[clusterId].append(trajectoryRepresentatives)
+                
+        return (clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId)
+
+    def getRandomClustersUsingRepresentatives(self, trajectoryRepresentative2ClusterId, clustersNr = 2):
+
+        trajectoryId2ClusterId = {}
+        trajectory2ClusterId = {}
+        clusterId2Trajectory = collections.defaultdict(list)
+
+        for key, elem in self.adaptedTrajectoriesDict.items():
+            trajectoryRepresentatives = tuple(TrajectoryUtils.elementsListRepresentatives([TrajectoryUtils.computeRelativeAngle(x, y) for (x, y) in elem[1:]]))
+            clusterId = randrange(clustersNr)
+            trajectoryId2ClusterId[key] = clusterId
+            trajectory2ClusterId[tuple(trajectoryRepresentatives)] = clusterId
+            clusterId2Trajectory[clusterId].append(trajectoryRepresentatives)
                 
         return (clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId)
 
@@ -301,28 +349,93 @@ class ResultsPlotter:
 
 class TrajectoryEvaluation:
 
-    def distanceFrechet(self, traj1, traj2):
-        return frechet_dist(traj1, traj2)
+    @staticmethod
+    def angleToQuadrant(degree):
+        if degree <= 90:
+            return 1
+        else:
+            if degree <= 180:
+                return 2
+            else:
+                if degree <= 270:
+                    return 3
+                else:
+                    if degree <= 360:
+                        return 4
+    @staticmethod
+    def reduceToQuadrant(angle, quad):
 
-    def getTrajectoryClusterCentroid(self, trajs):
+        if (quad == 2):
+            angle -= 90
+            angle *= -1
+        
+        if (quad == 3):
+            angle = 270 - angle
 
-        noDims = np.shape(trajs)[1]
+        if (quad == 4):
+            angleX = 360 - angle
+            angleX *= -1
+
+        return angle
+
+    @staticmethod
+    def DistFunc(x, y):
+
+        noDims = len(x)
+
+        angleDiffs = []
+        for dim in range(noDims):
+
+            angleX = x[dim]
+            angleY = y[dim]
+
+            quadX = TrajectoryEvaluation.angleToQuadrant(angleX)
+            quadY = TrajectoryEvaluation.angleToQuadrant(angleY)
+
+            # reduce to quadrant
+            angleX = TrajectoryEvaluation.reduceToQuadrant(angleX, quadX)
+            angleY = TrajectoryEvaluation.reduceToQuadrant(angleY, quadX)
+
+            # if angles are in the same quadrant just take the difference between abs
+            if (quadX == quadY):
+                angleDiff = abs(abs(angleX) - abs(angleY))
+            # if adjacent quadrants
+            elif ((quadX != quadY) and (quadX % 2) == (quadY % 2)):
+                angleDiff = abs(abs(angleX) + abs(angleY))
+            # if opposed quadrants
+            elif ((quadX != quadY) and (quadX % 2) != (quadY % 2)):
+                angleDiff = 360 - abs(abs(angleX) + abs(angleY))
+
+            angleDiffs.append(abs(angleDiff))
+
+        angleDiffsSum = sum(angleDiffs)
+
+        return angleDiffsSum/noDims
+
+
+    def trajectoriesDistance(self, traj1, traj2, useRepresentativesDist = False):
+        return frechet_dist(traj1, traj2) if useRepresentativesDist == False else TrajectoryEvaluation.DistFunc(traj1, traj2)
+
+    def getTrajectoryClusterCentroid(self, trajs, useRepresentativesDist = False):
+
         trajsNp = np.array(trajs)
+        noDims = np.shape(trajs)[1]
 
         centroid = []
         
         for d in range(noDims):
-            centroid.append(np.mean(trajsNp[:,d,:], axis=0))
+            correctProjection = trajsNp[:,d,:] if useRepresentativesDist == False else trajsNp[:,d]
+            centroid.append(np.mean(correctProjection, axis=0))
 
         return centroid
 
-    def computeDaviesBouldin(self, clusterId2Trajectory):
+    def computeDaviesBouldin(self, clusterId2Trajectory, useRepresentativesDist = False):
 
-        def getClusterAvg(trajs, centroid):
+        def getClusterAvg(trajs, centroid, useRepresentativesDist):
             distances = []
 
             for traj in trajs:
-                distances.append(self.distanceFrechet(traj, centroid))
+                distances.append(self.trajectoriesDistance(traj, centroid, useRepresentativesDist))
 
             return sum(distances)/len(distances)
 
@@ -338,22 +451,22 @@ class TrajectoryEvaluation:
                     continue
 
                 if clusterId1 not in clusterIds2Centroids:
-                    clusterIds2Centroids[clusterId1] = self.getTrajectoryClusterCentroid(clusterId2Trajectory[clusterId1])
+                    clusterIds2Centroids[clusterId1] = self.getTrajectoryClusterCentroid(clusterId2Trajectory[clusterId1], useRepresentativesDist)
                 if clusterId2 not in clusterIds2Centroids:
-                    clusterIds2Centroids[clusterId2] = self.getTrajectoryClusterCentroid(clusterId2Trajectory[clusterId2])
+                    clusterIds2Centroids[clusterId2] = self.getTrajectoryClusterCentroid(clusterId2Trajectory[clusterId2], useRepresentativesDist)
 
                 centroid1 = clusterIds2Centroids[clusterId1]
                 centroid2 = clusterIds2Centroids[clusterId2]
 
                 if clusterId1 not in clusterIds2Avgs:
-                    clusterIds2Avgs[clusterId1] = getClusterAvg(clusterId2Trajectory[clusterId1], centroid1)
+                    clusterIds2Avgs[clusterId1] = getClusterAvg(clusterId2Trajectory[clusterId1], centroid1, useRepresentativesDist)
                 if clusterId2 not in clusterIds2Avgs:
-                    clusterIds2Avgs[clusterId2] = getClusterAvg(clusterId2Trajectory[clusterId2], centroid2)
+                    clusterIds2Avgs[clusterId2] = getClusterAvg(clusterId2Trajectory[clusterId2], centroid2, useRepresentativesDist)
 
                 cluster1Avg = clusterIds2Avgs[clusterId1]
                 cluster2Avg = clusterIds2Avgs[clusterId2]
 
-                distFrech = self.distanceFrechet(centroid1, centroid2)
+                distFrech = self.trajectoriesDistance(centroid1, centroid2, useRepresentativesDist)
 
                 dbValue = (cluster1Avg + cluster2Avg) / (distFrech) if distFrech > 0 else 0
 
@@ -364,13 +477,13 @@ class TrajectoryEvaluation:
 
         return maximumsSum/len(set(clusterId2Trajectory.keys()))
 
-    def computeCalinskiHarabasz(self, clusterId2Trajectory):
+    def computeCalinskiHarabasz(self, clusterId2Trajectory, useRepresentativesDist = False):
 
         clustersNr = len(set(clusterId2Trajectory.keys()))
         allTrajectories = [traj for trajList in clusterId2Trajectory.values() for traj in trajList]
         trajectoriesNr = len(allTrajectories)
 
-        datasetCentroid = self.getTrajectoryClusterCentroid(allTrajectories)
+        datasetCentroid = self.getTrajectoryClusterCentroid(allTrajectories, useRepresentativesDist)
 
         sum1 = 0
         clusterIds2Centroids = {}
@@ -379,9 +492,9 @@ class TrajectoryEvaluation:
             elementsInCluster = len(clusterId2Trajectory[clusterId])
 
             if clusterId not in clusterIds2Centroids:
-                clusterIds2Centroids[clusterId] = self.getTrajectoryClusterCentroid(clusterId2Trajectory[clusterId])
+                clusterIds2Centroids[clusterId] = self.getTrajectoryClusterCentroid(clusterId2Trajectory[clusterId], useRepresentativesDist)
 
-            distHaussCentroid = self.distanceFrechet(clusterIds2Centroids[clusterId], datasetCentroid)
+            distHaussCentroid = self.trajectoriesDistance(clusterIds2Centroids[clusterId], datasetCentroid, useRepresentativesDist)
 
             sum1 += elementsInCluster * distHaussCentroid
 
@@ -390,13 +503,13 @@ class TrajectoryEvaluation:
         sum2 = 0
         for clusterId in clusterId2Trajectory:
             for traj in clusterId2Trajectory[clusterId]:
-                sum2 += self.distanceFrechet(traj, clusterIds2Centroids[clusterId])
+                sum2 += self.trajectoriesDistance(traj, clusterIds2Centroids[clusterId], useRepresentativesDist)
 
         term2 = sum2/(trajectoriesNr - clustersNr)
 
         return term1/term2
 
-    def computeSilhouette(self, trajectory2ClusterId):
+    def computeSilhouette(self, trajectory2ClusterId, useRepresentativesDist = False):
 
         labels = list(trajectory2ClusterId.values())
         allTrajectories = list(trajectory2ClusterId.keys())
@@ -406,21 +519,21 @@ class TrajectoryEvaluation:
         for traj1 in allTrajectories:
             matrixRow = []
             for traj2 in allTrajectories:
-                matrixRow.append(self.distanceFrechet(traj1, traj2))
+                matrixRow.append(self.trajectoriesDistance(traj1, traj2, useRepresentativesDist))
             distanceMatrix.append(matrixRow)
 
         return silhouette_score(X=distanceMatrix, labels=labels, metric='precomputed')
 
     @staticmethod
-    def printEvaluationMeasures(clusterId2Trajectory, trajectory2ClusterId):
+    def printEvaluationMeasures(clusterId2Trajectory, trajectory2ClusterId, useRepresentativesDist = False):
         
         print('')
         print('EVALUATION MEASURES', len(set(clusterId2Trajectory.keys())), 'clusters')
         print('')
 
-        dbI = trajectoryEvaluation.computeDaviesBouldin(clusterId2Trajectory)
-        chI = trajectoryEvaluation.computeCalinskiHarabasz(clusterId2Trajectory)
-        silh = trajectoryEvaluation.computeSilhouette(trajectory2ClusterId)
+        dbI = trajectoryEvaluation.computeDaviesBouldin(clusterId2Trajectory, useRepresentativesDist)
+        chI = trajectoryEvaluation.computeCalinskiHarabasz(clusterId2Trajectory, useRepresentativesDist)
+        silh = trajectoryEvaluation.computeSilhouette(trajectory2ClusterId, useRepresentativesDist)
 
         print('Davies Bouldin Index', dbI)
         print('Calinski Harabasz Index', chI)
@@ -445,6 +558,37 @@ resultsPlotter.plotPlaneProjection(points2ClustersDict, trajectoryClusterer.getA
 clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId = trajectoryClusterer.getClustersForTrajectories(points2ClustersDict)
 resultsPlotter.plotDenLACResult(trajectoryId2ClusterId)
 
+print('=== === WITH REPRESENTATIVES === ===')
+
+clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId = trajectoryClusterer.getClustersForTrajectoriesUsingRepresentatives(points2ClustersDict)
+
+print('=== RESULTS ===')
+
+trajectoryEvaluation = TrajectoryEvaluation()
+TrajectoryEvaluation.printEvaluationMeasures(clusterId2Trajectory, trajectory2ClusterId, True)
+
+print('=== EDGE CASES ===')
+
+print('2 clusters')
+# worst case indices (each trajectory in its separate cluster)
+clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId = trajectoryClusterer.getWorstCaseClustersUsingRepresentatives(points2ClustersDict, 2)
+TrajectoryEvaluation.printEvaluationMeasures(clusterId2Trajectory, trajectory2ClusterId, True)
+
+clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId = trajectoryClusterer.getRandomClustersUsingRepresentatives(points2ClustersDict, 2)
+TrajectoryEvaluation.printEvaluationMeasures(clusterId2Trajectory, trajectory2ClusterId, True)
+
+print('3 clusters')
+clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId = trajectoryClusterer.getWorstCaseClustersUsingRepresentatives(points2ClustersDict, 3)
+TrajectoryEvaluation.printEvaluationMeasures(clusterId2Trajectory, trajectory2ClusterId, True)
+
+clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId = trajectoryClusterer.getRandomClustersUsingRepresentatives(points2ClustersDict, 3)
+TrajectoryEvaluation.printEvaluationMeasures(clusterId2Trajectory, trajectory2ClusterId, True)
+
+print('=== === CLASSIC === ===')
+
+print('=== RESULTS ===')
+
+clusterId2Trajectory, trajectory2ClusterId, trajectoryId2ClusterId = trajectoryClusterer.getClustersForTrajectories(points2ClustersDict)
 trajectoryEvaluation = TrajectoryEvaluation()
 TrajectoryEvaluation.printEvaluationMeasures(clusterId2Trajectory, trajectory2ClusterId)
 
